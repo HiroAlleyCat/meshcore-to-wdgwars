@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Double-click (or run) this once to install dependencies and save your WDGoWars API key.
+# Double-click (or run) this once to install dependencies and save your WDGWars API key.
 # Heimdall has no third-party deps today, but we refresh requirements.txt
 # from GitHub anyway so the bootstrap stays consistent if a dep is added
 # in a future release.
@@ -44,7 +44,7 @@ echo "[3/4] Installing dependencies..."
 "$VENV_PY" -m pip install --upgrade -r requirements.txt
 
 echo
-echo "[4/4] Saving your WDGoWars API key..."
+echo "[4/4] Saving your WDGWars API key..."
 "$VENV_PY" heimdall.py --setup
 
 echo

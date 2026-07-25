@@ -105,7 +105,7 @@ if [ "$(uname -s)" = "Linux" ] && command -v systemctl >/dev/null 2>&1 \
         || fail "OnCalendar missing from timer"
     # CRITICAL: ensure no API key ever lands in the unit file
     grep -q -- "--key " "$UNIT" \
-        && fail "WDGoWars key leaked into service ExecStart"
+        && fail "WDGWars key leaked into service ExecStart"
     grep -q "PLACEHOLDER" "$UNIT" \
         && fail "saved key contents leaked into service ExecStart"
     ok "unit + timer content correct (dry-run + marker + flags + no key leak)"

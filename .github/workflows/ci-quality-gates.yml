@@ -40,7 +40,7 @@ jobs:
           python -m pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Run pytest with coverage
-        # CI runners never hold a real WDGoWars key, so the live-key safety
+        # CI runners never hold a real WDGWars key, so the live-key safety
         # guard is a no-op here; the env var makes that intent explicit.
         env:
           HEIMDALL_TEST_ALLOW_LIVE_KEY: "1"

@@ -10,7 +10,7 @@ location (node IDs are public on the Meshcore mesh — anyone in range
 sees the same IDs).
 
 This file demonstrates the parser's field mapping and the envelope
-build. It is intentionally **not** valid live data — WDGoWars's
+build. It is intentionally **not** valid live data — WDGWars's
 ingest path rejects `lat=0, lon=0` as `no_gps`, so a real upload
 attempt with this CSV would bounce harmlessly. Safe to commit and
 ship as a fixture.

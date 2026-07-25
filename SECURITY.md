@@ -4,7 +4,7 @@
 
 - Reads a local CSV or JSON file (your MeshMapper export or MeshCore
   offline ping log).
-- Normalises each row to the WDGoWars meshcore schema.
+- Normalises each row to the WDGWars meshcore schema.
 - Optionally POSTs the records to `https://wdgwars.pl/api/upload/` as
   an HMAC-signed JSON envelope.
 - Optionally checks GitHub's releases API for a newer version (see
@@ -12,7 +12,7 @@
 
 ## Outbound network footprint
 
-- **Uploads** go only to the configured WDGoWars endpoint
+- **Uploads** go only to the configured WDGWars endpoint
   (`https://wdgwars.pl/api/upload/` by default, override with
   `--api-url`), and only when you invoke an upload without `--dry-run`.
 - **Version check**: at most once per 24 h Heimdall queries GitHub's
@@ -49,7 +49,7 @@
 
 ## What the API key can do
 
-The WDGoWars API key authorises you to submit observations under your
+The WDGWars API key authorises you to submit observations under your
 account. If it leaks, an attacker could:
 
 - Submit fake mesh / WiFi / BLE / aircraft captures under your name.
@@ -61,7 +61,7 @@ It cannot (as far as we know):
 - Withdraw money / make purchases.
 - Affect other users' accounts.
 
-If you suspect your key has leaked, rotate it on the WDGoWars site and
+If you suspect your key has leaked, rotate it on the WDGWars site and
 re-run Heimdall with the new key.
 
 ## HMAC envelope
@@ -95,7 +95,7 @@ refuses symlinks and uses mode 600. The full write-up is in
 
 ## Reporting issues
 
-Open a GitHub issue, or DM the maintainer on the WDGoWars community
-channels. For anything potentially exploitable upstream (in WDGoWars
+Open a GitHub issue, or DM the maintainer on the WDGWars community
+channels. For anything potentially exploitable upstream (in WDGWars
 itself), please disclose privately to LOCOSP first rather than filing
 a public issue here.

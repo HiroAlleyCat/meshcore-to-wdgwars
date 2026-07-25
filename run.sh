@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Double-click (or run) to upload a MeshMapper CSV to WDGoWars.
+# Double-click (or run) to upload a MeshMapper CSV to WDGWars.
 # Usage: ./run.sh path/to/your_export.csv
 cd "$(dirname "$0")"
 if [ -x ".venv/bin/python" ]; then

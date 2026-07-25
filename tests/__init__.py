@@ -1,6 +1,6 @@
 """Heimdall test suite.
 
-Safety net: refuse to start the test process if a live WDGoWars API
+Safety net: refuse to start the test process if a live WDGWars API
 key is configured at the canonical Heimdall path. Tests that exercise
 upload paths read the same key as production runs, so a stray test
 invocation can post synthetic data to LOCOSP's prod. Mirrors the

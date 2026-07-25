@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/banner.png" alt="Heimdall — Odin's watcher for the WDGoWars mesh" width="100%"/>
+  <img src="assets/banner.png" alt="Heimdall — Odin's watcher for the WDGWars mesh" width="100%"/>
 </p>
 
 <p align="center">
@@ -12,13 +12,13 @@
 
 # Heimdall
 
-Convert **MeshMapper** "Logs → Copy CSV" exports (and other Meshcore LoRa capture formats, over time) to WDGoWars-compatible JSON and optionally upload them. Sibling tool to [adsb-to-wdgwars](https://github.com/Yggdrasil-AI-labs/adsb-to-wdgwars) (Muninn); same HMAC envelope, same `/api/upload/` endpoint, different payload slot. Muninn fills `aircraft`; Heimdall fills `meshcore_nodes`.
+Convert **MeshMapper** "Logs → Copy CSV" exports (and other Meshcore LoRa capture formats, over time) to WDGWars-compatible JSON and optionally upload them. Sibling tool to [adsb-to-wdgwars](https://github.com/Yggdrasil-AI-labs/adsb-to-wdgwars) (Muninn); same HMAC envelope, same `/api/upload/` endpoint, different payload slot. Muninn fills `aircraft`; Heimdall fills `meshcore_nodes`.
 
-**Scope:** Heimdall is for **Meshcore LoRa observations from your own captures**. The WDGoWars mesh channel is specifically for Meshcore (LoRa, sub-GHz). Other 802.15.4 traffic — Zigbee, Thread, generic mesh-sounding protocols — does not belong here and will not be accepted upstream. If your data came from a real Meshcore receiver (MeshMapper app, T-Beam running Meshcore Companion, Cardputer ADV + LoRa cap, Heltec V3, etc.), you're in the right place.
+**Scope:** Heimdall is for **Meshcore LoRa observations from your own captures**. The WDGWars mesh channel is specifically for Meshcore (LoRa, sub-GHz). Other 802.15.4 traffic — Zigbee, Thread, generic mesh-sounding protocols — does not belong here and will not be accepted upstream. If your data came from a real Meshcore receiver (MeshMapper app, T-Beam running Meshcore Companion, Cardputer ADV + LoRa cap, Heltec V3, etc.), you're in the right place.
 
 ## Family
 
-Sibling repos in the WDGoWars feeder family:
+Sibling repos in the WDGWars feeder family:
 
 - [Muninn](https://github.com/Yggdrasil-AI-labs/adsb-to-wdgwars) — ADS-B feeder
 - [wigle-to-wdgwars](https://github.com/Yggdrasil-AI-labs/wigle-to-wdgwars) — WiGLE Wi-Fi/BLE feeder
@@ -76,7 +76,7 @@ Both install paths work the same way for daily use. `--update` is smart enough t
 python3 heimdall.py --setup
 ```
 
-Walks you through pasting your WDGoWars API key, validates it against `/api/me`, and saves it to:
+Walks you through pasting your WDGWars API key, validates it against `/api/me`, and saves it to:
 
 | OS | Saved location |
 |---|---|
@@ -102,7 +102,7 @@ Prints the first six normalised rows to stdout as JSON, then exits. No upload, n
 
 ---
 
-## Uploading to WDGoWars
+## Uploading to WDGWars
 
 ```bash
 # Easiest: after `--setup`, no flags needed.
@@ -210,13 +210,13 @@ Italicised rows are not yet implemented — they are on the roadmap once sample 
 | Flag | Purpose | Default |
 |---|---|---|
 | `csv` (positional) | Path to the MeshMapper CSV export. Optional with `--setup`, `--save-key`, `--whoami`, `--update`, `--schedule`, `--unschedule`. | (none) |
-| `--setup` | Interactive first-time setup. Prompts for your WDGoWars API key, validates it against `/api/me`, and saves it to your user config dir. | off |
+| `--setup` | Interactive first-time setup. Prompts for your WDGWars API key, validates it against `/api/me`, and saves it to your user config dir. | off |
 | `--save-key KEY` | Non-interactive: save the given API key to the user config dir. Prefer `--setup` for first-time install. | off |
 | `--whoami` | Validate your stored API key by hitting `/api/me` and printing username + node counts. | off |
-| `--key KEY` | WDGoWars API key. Overrides the `WDGWARS_API_KEY` env var and the saved key. Matches Muninn + wigle-to-wdgwars. | env / saved |
+| `--key KEY` | WDGWars API key. Overrides the `WDGWARS_API_KEY` env var and the saved key. Matches Muninn + wigle-to-wdgwars. | env / saved |
 | `--preview` | Parse the file, print the first six normalised rows as JSON, then exit. No envelope build, no upload. | off |
 | `--dry-run` | Build the full HMAC-signed request envelope (same bytes the live upload would send), print a short summary per chunk, but do **not** POST. | off |
-| `--api-url URL` | Override the WDGoWars upload URL. Matches Muninn. | `https://wdgwars.pl/api/upload/` |
+| `--api-url URL` | Override the WDGWars upload URL. Matches Muninn. | `https://wdgwars.pl/api/upload/` |
 | `--schedule` | Install a daily scheduled upload. Pairs with `--schedule-csv PATH`. | off |
 | `--unschedule` | Remove every Heimdall-managed scheduled task on this host. | off |
 | `--schedule-csv PATH` | CSV file to upload daily. **Required** with `--schedule`. | (none) |
@@ -273,8 +273,8 @@ Records batch in chunks of **1000** per request.
 |---|---|---|
 | `[heimdall] note: --api-key is deprecated, use --key.` | You're on a fresh `v0.3.0+` with old shell history / docs. | Rename the flag — both still work today, but `--api-key` will be dropped in a future release. |
 | `--schedule needs --schedule-csv PATH` | The scheduler needs a fixed CSV file path to upload daily. | Pick a path you keep refreshing (your nightly MeshMapper export) and pass it: `./run.sh --schedule --schedule-csv /path/to/file.csv`. |
-| `--schedule needs a saved WDGoWars API key` | The installed timer reads the saved key at run-time; you haven't saved one yet. | Run `./run.sh --setup` first, then re-run `--schedule`. |
-| Daily upload runs but nothing appears on WDGoWars | The schedule was installed with `--schedule-dry-run`. | Re-run `--schedule` without `--schedule-dry-run` to go live. |
+| `--schedule needs a saved WDGWars API key` | The installed timer reads the saved key at run-time; you haven't saved one yet. | Run `./run.sh --setup` first, then re-run `--schedule`. |
+| Daily upload runs but nothing appears on WDGWars | The schedule was installed with `--schedule-dry-run`. | Re-run `--schedule` without `--schedule-dry-run` to go live. |
 | Want to inspect the installed daily job | Per-OS check: | `systemctl --user cat heimdall.service` (systemd) / `crontab -l` (cron) / `schtasks /Query /TN Heimdall /V` (Windows). |
 | `schtasks: Value for '/TR' option cannot be more than 261 character(s)` | Your install path + CSV path exceed the schtasks /TR limit. | Move the install to a shorter path (e.g. `C:\heimdall\` instead of nested user paths). |
 | Dry-run says HEALTHY but real upload returns `401` | Saved key was rotated or revoked. | Re-run `./run.sh --setup` to save the current key, then `./run.sh --whoami` to verify. |
@@ -320,14 +320,14 @@ The target per-record schema is `node_id, node_type, name, lat, lon, rssi, first
 - The API key is read from `--key` (or the deprecated `--api-key` alias), then `$WDGWARS_API_KEY`, then the saved key file. When `--setup` (or `--save-key`) writes the file, it's `chmod 0600` on Unix and lives under the per-user `%APPDATA%` on Windows.
 - The bundled `examples/sample.csv` is a **scrubbed** export with `lat=0, lon=0` for every row, so it cannot accidentally produce a real upload (the upstream ingest rejects `0,0` GPS).
 - The daily version check hits `https://api.github.com/repos/Yggdrasil-AI-labs/meshcore-to-wdgwars/releases/latest` with a `heimdall/<version>` User-Agent, caches the answer for 24h, and sends nothing about you or your data. Disable per-run with `--no-version-check`, or silence globally with `--quiet`.
-- No telemetry, no analytics. The only outbound traffic is to the WDGoWars upload endpoint (when you explicitly invoke an upload) and the GitHub release check (cached daily, opt-out via `--no-version-check`).
+- No telemetry, no analytics. The only outbound traffic is to the WDGWars upload endpoint (when you explicitly invoke an upload) and the GitHub release check (cached daily, opt-out via `--no-version-check`).
 
 ---
 
 ## Credits
 
 - **Muninn** ([adsb-to-wdgwars](https://github.com/Yggdrasil-AI-labs/adsb-to-wdgwars)) — parent pattern. HMAC envelope, three-deploy-mode design, Pyodide web flavour all originate there.
-- **FusedStamen** — surfaced the WDGoWars mesh ingest target schema and suggested the MeshMapper CSV bridge angle.
+- **FusedStamen** — surfaced the WDGWars mesh ingest target schema and suggested the MeshMapper CSV bridge angle.
 - **Wild!Radio** — supplied the MeshMapper RX-log sample used to wire the field map.
 - **[@nicolasrata](https://github.com/nicolasrata)** — contributed the first real-world baseline ([issue #1](https://github.com/Yggdrasil-AI-labs/meshcore-to-wdgwars/issues/1)): a multi-section MeshMapper export and a MeshCore offline ping-log JSON, which is what the v0.4.0 section-aware CSV and JSON parsers were built and tested against.
 - **MeshMapper** ([wiki](https://wiki.meshmapper.net/)) — upstream Meshcore visualisation platform whose CSV export is Heimdall's first supported input.
@@ -343,4 +343,4 @@ MIT — see [LICENSE](LICENSE).
 ## Related
 
 - [adsb-to-wdgwars](https://github.com/Yggdrasil-AI-labs/adsb-to-wdgwars) — Muninn, the aircraft sibling.
-- [WDGoWars](https://wdgwars.pl) — the wardriving game these tools feed.
+- [WDGWars](https://wdgwars.pl) — the wardriving game these tools feed.

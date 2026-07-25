@@ -11,7 +11,7 @@ no shared deps, no display required.
 
 ## What's here
 
-- `index.html` — the page itself (inline CSS, matches the WDGoWars cyan-on-black aesthetic)
+- `index.html` — the page itself (inline CSS, matches the WDGWars cyan-on-black aesthetic)
 - `app.js` — drop-zone wiring + Pyodide bootstrap + HMAC upload
 - `heimdall.py` — build-time copy of the root `heimdall.py` (the parser runs as-is)
 - `serve.py` — optional self-hosted server that proxies `/api/upload/` to wdgwars.pl (so direct browser upload works on a local install)

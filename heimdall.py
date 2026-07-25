@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-heimdall.py — MeshMapper CSV to WDGoWars meshcore_nodes uplink.
+heimdall.py — MeshMapper CSV to WDGWars meshcore_nodes uplink.
 
 Sibling of Muninn (adsb-to-wdgwars). Same HMAC envelope, same /api/upload/
 endpoint, different payload slot. Muninn fills `aircraft`; Heimdall fills
@@ -360,14 +360,14 @@ def interactive_setup() -> int:
     print(" heimdall, API key setup", file=sys.stderr)
     print("-" * 60, file=sys.stderr)
     print("", file=sys.stderr)
-    print(" An API key is ONLY needed if you want to upload to WDGoWars.", file=sys.stderr)
+    print(" An API key is ONLY needed if you want to upload to WDGWars.", file=sys.stderr)
     print(" Local CSV parsing and --preview work without one.", file=sys.stderr)
     print("", file=sys.stderr)
     print(" Get your key from: https://wdgwars.pl/  ->  profile  ->  API Key", file=sys.stderr)
     print(f" It will be saved to: {_key_path()}", file=sys.stderr)
     print("", file=sys.stderr)
 
-    if not _prompt_yes_no(" Set up your WDGoWars API key now?", default=True):
+    if not _prompt_yes_no(" Set up your WDGWars API key now?", default=True):
         print("", file=sys.stderr)
         print(" Skipped. You can run setup later with:", file=sys.stderr)
         print("   python3 heimdall.py --setup", file=sys.stderr)
@@ -378,9 +378,9 @@ def interactive_setup() -> int:
         try:
             if sys.stdin.isatty():
                 import getpass
-                key = getpass.getpass(" Paste your WDGoWars API key (hidden): ").strip()
+                key = getpass.getpass(" Paste your WDGWars API key (hidden): ").strip()
             else:
-                print(" Paste your WDGoWars API key: ", end="", flush=True,
+                print(" Paste your WDGWars API key: ", end="", flush=True,
                       file=sys.stderr)
                 key = sys.stdin.readline().strip()
         except (KeyboardInterrupt, EOFError):
@@ -415,7 +415,7 @@ def interactive_setup() -> int:
 
 def _normalise_meshmapper_row(row: dict[str, str]) -> dict[str, Any] | None:
     """
-    Map one MeshMapper RX-log CSV row to the WDGoWars meshcore schema.
+    Map one MeshMapper RX-log CSV row to the WDGWars meshcore schema.
 
     MeshMapper "Copy CSV" header:
         timestamp,repeater_id,snr,rssi,path_length,header,latitude,longitude,path_hops
@@ -1237,7 +1237,7 @@ def cmd_schedule_headless(args) -> int:
     time_hhmm = _validate_hhmm(args.schedule_time or DEFAULT_SCHEDULE_TIME)
     dry_run = bool(args.schedule_dry_run)
     if not _key_path().exists() and not os.environ.get("WDGWARS_API_KEY"):
-        sys.exit("--schedule needs a saved WDGoWars API key (run --setup "
+        sys.exit("--schedule needs a saved WDGWars API key (run --setup "
                  "first), or set WDGWARS_API_KEY in the environment the "
                  "scheduler will run under.")
     mech = _schedule_mechanism()
@@ -1268,7 +1268,7 @@ def cmd_unschedule() -> int:
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
-        description=f"Heimdall v{__version__}, MeshMapper CSV to WDGoWars "
+        description=f"Heimdall v{__version__}, MeshMapper CSV to WDGWars "
                     f"meshcore_nodes uplink.",
     )
     p.add_argument("--version", action="version",
@@ -1284,7 +1284,7 @@ def main(argv: list[str] | None = None) -> int:
                         "--whoami, or --update.")
     p.add_argument("--setup", action="store_true",
                    help="interactive first-time setup, prompts for your "
-                        "WDGoWars API key, validates it, and saves it locally.")
+                        "WDGWars API key, validates it, and saves it locally.")
     p.add_argument("--save-key", metavar="KEY",
                    help="non-interactive: save the given API key to the user "
                         "config dir. Prefer --setup for first-time install.")
@@ -1296,7 +1296,7 @@ def main(argv: list[str] | None = None) -> int:
     # was slated for v0.4 but deliberately slipped — drop it in the next
     # major once the operator confirms no schedulers still pass it. The
     # actual value lands on args.key after the merge below.
-    p.add_argument("--key", help="WDGoWars API key (or set WDGWARS_API_KEY, "
+    p.add_argument("--key", help="WDGWars API key (or set WDGWARS_API_KEY, "
                                  "or run --setup once to save it)")
     p.add_argument("--api-key", dest="api_key_legacy",
                    help=argparse.SUPPRESS)  # deprecated alias for --key
