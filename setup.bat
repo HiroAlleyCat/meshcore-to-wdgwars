@@ -1,5 +1,5 @@
 @echo off
-REM Double-click this once to install dependencies and save your WDGoWars API key.
+REM Double-click this once to install dependencies and save your WDGWars API key.
 REM Heimdall has no third-party deps today, but we refresh requirements.txt
 REM from GitHub anyway so the bootstrap stays consistent if a dep is added
 REM in a future release.
@@ -35,7 +35,7 @@ if errorlevel 1 (
 )
 
 echo.
-echo [3/3] Saving your WDGoWars API key...
+echo [3/3] Saving your WDGWars API key...
 python "%~dp0heimdall.py" --setup
 
 :done
