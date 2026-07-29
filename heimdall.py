@@ -47,7 +47,7 @@ from pathlib import Path
 from typing import Any
 
 
-__version__ = "0.4.7"
+__version__ = "0.4.8"
 GITHUB_REPO = "Yggdrasil-AI-labs/meshcore-to-wdgwars"
 
 DEFAULT_ENDPOINT = "https://wdgwars.pl/api/upload/"
@@ -161,6 +161,54 @@ def _build_record(node_id: str, node_type: str, name: str,
         "first_seen": _format_first_seen(timestamp),
         "type": MESHCORE_ENVELOPE_TYPE,
     }
+
+
+def collapse_repeat_sightings(
+        nodes: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+    """Collapse repeat sightings of the same node_id, first sighting wins.
+
+    Matches the web flavour (v0.4.6) and the server's own dedupe, which
+    reports repeats as already_seen. Returns (unique_nodes, collapsed_count);
+    input order is preserved.
+    """
+    seen: set[str] = set()
+    unique: list[dict[str, Any]] = []
+    for n in nodes:
+        if n["node_id"] in seen:
+            continue
+        seen.add(n["node_id"])
+        unique.append(n)
+    return unique, len(nodes) - len(unique)
+
+
+# A node_id that is one hex digit repeated (eeeeee, ffff, 000000). Seen in a
+# real MeshMapper export (issue #1, 2026-07-27: `eeeeee` appearing in three
+# separate sightings) where it reads as placeholder output rather than a
+# heard node. One sample is not enough to filter on, so these are flagged,
+# never dropped.
+_FILLER_ID_RE = re.compile(r"^([0-9a-f])\1+$")
+
+
+def flag_filler_ids(nodes: list[dict[str, Any]]) -> list[str]:
+    """Warn about node_ids that look like MeshMapper placeholder output.
+
+    Takes the raw (pre-collapse) sighting list so the warning can say how
+    often the ID recurred. Returns human-readable warning lines.
+    """
+    counts: dict[str, int] = {}
+    for n in nodes:
+        if _FILLER_ID_RE.match(n["node_id"]):
+            counts[n["node_id"]] = counts.get(n["node_id"], 0) + 1
+    warnings: list[str] = []
+    for node_id, count in counts.items():
+        times = f"{count} sightings" if count > 1 else "1 sighting"
+        warnings.append(
+            f"node_id '{node_id}' ({times}) is a single repeated hex digit; "
+            f"this looks like placeholder output from the capture app "
+            f"rather than a heard node. Uploading it anyway, flagging it "
+            f"so an import of it is not a surprise."
+        )
+    return warnings
 
 
 # wdgwars.pl's per-record gates, mirrored client-side (see _build_record for
@@ -1459,6 +1507,13 @@ def main(argv: list[str] | None = None) -> int:
     if not nodes:
         print("nothing to upload", file=sys.stderr)
         return 1
+    for line in flag_filler_ids(nodes):
+        print(f"[heimdall] heads-up: {line}", file=sys.stderr)
+    nodes, collapsed = collapse_repeat_sightings(nodes)
+    if collapsed:
+        print(f"[heimdall] collapsed {collapsed} repeat sighting(s) of the "
+              f"same node_id (first sighting wins, matching the server's "
+              f"dedupe); {len(nodes)} unique nodes remain.", file=sys.stderr)
     for line in predict_server_rejects(nodes):
         print(f"[heimdall] heads-up: {line}", file=sys.stderr)
 

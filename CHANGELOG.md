@@ -4,6 +4,26 @@ All notable changes to Heimdall are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.4.8] - 2026-07-29 - CLI collapses repeat sightings; filler-ID heads-up
+
+### Changed
+
+- **The CLI now collapses repeat sightings of the same `node_id` before
+  upload** (first sighting wins), matching the web flavour (v0.4.6) and the
+  server's own dedupe. A capture that logs the same repeater in several
+  DISC/TX rows no longer inflates the parsed count or the upload payload;
+  the CLI reports how many sightings were collapsed and how many unique
+  nodes remain. The issue #1 sample's "53 nodes" included the same IDs
+  sighted repeatedly.
+
+### Added
+
+- **Heads-up for filler node_ids.** A `node_id` that is one hex digit
+  repeated (`eeeeee` appeared in three separate sightings of the issue #1
+  capture) reads as placeholder output from the capture app rather than a
+  heard node. One sample is not enough to filter on, so these upload
+  unchanged, but the CLI now flags them with their sighting count.
+
 ## [0.4.7] - 2026-07-29 - Predict server rejections before uploading
 
 ### Added

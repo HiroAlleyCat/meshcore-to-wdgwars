@@ -306,7 +306,8 @@ class UnaccountedNodesNoteTests(unittest.TestCase):
         import contextlib
         import io
         from unittest import mock
-        csv_path = _write_tmp(SECTIONED_CSV, ".csv")  # parses to 3 nodes
+        # Parses to 3 sightings; 0ce8 repeats, so 2 unique nodes upload.
+        csv_path = _write_tmp(SECTIONED_CSV, ".csv")
         err, out = io.StringIO(), io.StringIO()
         with mock.patch.object(heimdall, "upload",
                                return_value=[(200, response_body)]), \
@@ -321,14 +322,64 @@ class UnaccountedNodesNoteTests(unittest.TestCase):
             {"meshcore_imported": 0, "meshcore_already_seen": 0,
              "meshcore_rejected": 0}))
         self.assertIn("no verdict", stderr)
-        self.assertIn("3 submitted nodes", stderr)
+        self.assertIn("2 submitted nodes", stderr)
 
     def test_fully_accounted_response_stays_quiet(self):
         stderr = self._run_main(json.dumps(
-            {"meshcore_imported": 1, "meshcore_already_seen": 1,
+            {"meshcore_imported": 1, "meshcore_already_seen": 0,
              "meshcore_rejected": 1,
              "meshcore_reject_reasons": {"bad_node_id": 1}}))
         self.assertNotIn("no verdict", stderr)
+
+    def test_repeat_sightings_collapse_before_upload(self):
+        stderr = self._run_main(json.dumps(
+            {"meshcore_imported": 2, "meshcore_already_seen": 0,
+             "meshcore_rejected": 0}))
+        self.assertIn("collapsed 1 repeat sighting", stderr)
+        self.assertIn("2 unique nodes", stderr)
+
+
+class CollapseRepeatSightingsTests(unittest.TestCase):
+    @staticmethod
+    def _node(node_id, rssi=None):
+        return {"node_id": node_id, "node_type": "REPEATER", "name": node_id,
+                "lat": 1.0, "lon": 2.0, "rssi": rssi,
+                "first_seen": "2026-07-27 06:37:27", "type": "MESHCORE"}
+
+    def test_first_sighting_wins_order_preserved(self):
+        nodes = [self._node("0ce8", rssi=-98.0), self._node("910e"),
+                 self._node("0ce8", rssi=-50.0)]
+        unique, collapsed = heimdall.collapse_repeat_sightings(nodes)
+        self.assertEqual(collapsed, 1)
+        self.assertEqual([n["node_id"] for n in unique], ["0ce8", "910e"])
+        self.assertEqual(unique[0]["rssi"], -98.0)  # first sighting wins
+
+    def test_no_repeats_is_a_noop(self):
+        nodes = [self._node("0ce8"), self._node("910e")]
+        unique, collapsed = heimdall.collapse_repeat_sightings(nodes)
+        self.assertEqual(collapsed, 0)
+        self.assertEqual(unique, nodes)
+
+
+class FillerIdTests(unittest.TestCase):
+    @staticmethod
+    def _node(node_id):
+        return {"node_id": node_id, "node_type": "REPEATER", "name": node_id,
+                "lat": 1.0, "lon": 2.0, "rssi": None,
+                "first_seen": "2026-07-27 06:37:27", "type": "MESHCORE"}
+
+    def test_repeated_digit_id_flagged_with_sighting_count(self):
+        # The issue #1 sample: eeeeee showing up in three sightings.
+        nodes = [self._node("eeeeee")] * 3 + [self._node("94c0d6")]
+        warnings = heimdall.flag_filler_ids(nodes)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("'eeeeee'", warnings[0])
+        self.assertIn("3 sightings", warnings[0])
+
+    def test_normal_ids_not_flagged(self):
+        nodes = [self._node("94c0d6"), self._node("0ce8"),
+                 self._node("abab")]  # repeating pattern, but two digits
+        self.assertEqual(heimdall.flag_filler_ids(nodes), [])
 
 
 class VersionTests(unittest.TestCase):
