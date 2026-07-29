@@ -47,7 +47,7 @@ from pathlib import Path
 from typing import Any
 
 
-__version__ = "0.4.8"
+__version__ = "0.4.9"
 GITHUB_REPO = "Yggdrasil-AI-labs/meshcore-to-wdgwars"
 
 DEFAULT_ENDPOINT = "https://wdgwars.pl/api/upload/"

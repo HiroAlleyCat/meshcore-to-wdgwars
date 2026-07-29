@@ -4,6 +4,16 @@ All notable changes to Heimdall are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.4.9] - 2026-07-29 - Trim the v0.4.7/v0.4.8 helpers
+
+### Changed
+
+- Internal cleanup of the two previous releases, no behavior change:
+  `dict.setdefault` for the first-wins dedupe instead of a parallel seen-set,
+  one nullable counter for the response audit instead of a second boolean,
+  and the pre-upload warnings cut to the facts. The filler-ID heads-up now
+  reads `(3x)` rather than `(3 sightings)`.
+
 ## [0.4.8] - 2026-07-29 - CLI collapses repeat sightings; filler-ID heads-up
 
 ### Changed
