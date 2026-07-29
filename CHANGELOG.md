@@ -4,6 +4,28 @@ All notable changes to Heimdall are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.4.7] - 2026-07-29 - Predict server rejections before uploading
+
+### Added
+
+- **The CLI now predicts wdgwars.pl's per-record rejections at parse time**
+  (issue #1). The server's meshcore gates (node_id must be 8-16 lowercase
+  hex; GPS fix must not be 0,0) are mirrored client-side, and a heads-up
+  line is printed before upload and preview when records are going to miss
+  them. Answers "where does that `bad_node_id` come from?" up front instead
+  of leaving a rejected count in the response as the only clue: MeshMapper
+  exports only carry a 2-6 hex tail of the mesh public key, which falls
+  under the server's 8-hex floor, so those records are rejected server-side
+  regardless of anything the client does.
+- **The CLI cross-checks the server's response arithmetic.** Every submitted
+  node should come back as imported, already seen, or rejected; when a 2xx
+  response's counters cover fewer nodes than were sent, a note says how many
+  got no verdict. Observed live in issue #1: re-submitting a payload the
+  server had just itemised as `bad_node_id: 53` returned all-zero counters,
+  which previously printed as a clean "accepted, 0 new" with no trace of
+  the 53 dropped records. Heimdall keeps no state between runs; the
+  difference was entirely in the server's response.
+
 ## [0.4.6] - 2026-07-19 - Web flavour stops pointing players at the website upload form
 
 ### Fixed

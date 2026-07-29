@@ -47,7 +47,7 @@ from pathlib import Path
 from typing import Any
 
 
-__version__ = "0.4.6"
+__version__ = "0.4.7"
 GITHUB_REPO = "Yggdrasil-AI-labs/meshcore-to-wdgwars"
 
 DEFAULT_ENDPOINT = "https://wdgwars.pl/api/upload/"
@@ -161,6 +161,43 @@ def _build_record(node_id: str, node_type: str, name: str,
         "first_seen": _format_first_seen(timestamp),
         "type": MESHCORE_ENVELOPE_TYPE,
     }
+
+
+# wdgwars.pl's per-record gates, mirrored client-side (see _build_record for
+# the 2026-07-03 confirmation). The server silently drops gated records and
+# only itemises them in meshcore_reject_reasons after the fact, which reads
+# as a mystery ("accepted, 0 new, 53 rejected: bad_node_id" - issue #1).
+# Predicting the verdict at parse time turns that into a plain answer.
+_SERVER_NODE_ID_GATE = re.compile(r"^[0-9a-f]{8,16}$")
+
+
+def predict_server_rejects(nodes: list[dict[str, Any]]) -> list[str]:
+    """Dry-run wdgwars.pl's per-record gates against built records.
+
+    Returns human-readable warning lines; empty when everything should pass.
+    Mirrors the two gates a client can evaluate: node_id shape (8-16
+    lowercase hex) and a real GPS fix (not 0,0). The third gate, node_type,
+    coerces to Unknown server-side since 2026-07-03 and no longer rejects.
+    """
+    warnings: list[str] = []
+    short = sum(1 for n in nodes
+                if not _SERVER_NODE_ID_GATE.match(n["node_id"]))
+    if short:
+        warnings.append(
+            f"{short} of {len(nodes)} node_ids are outside the 8-16 hex "
+            f"range wdgwars.pl requires; the server will reject each of "
+            f"them as bad_node_id. This is a MeshMapper data limitation, "
+            f"not a capture mistake: its exports only carry a 2-6 hex tail "
+            f"of the mesh public key, and there is nothing valid Heimdall "
+            f"could pad it with."
+        )
+    no_gps = sum(1 for n in nodes if not n["lat"] and not n["lon"])
+    if no_gps:
+        warnings.append(
+            f"{no_gps} of {len(nodes)} nodes have no GPS fix (lat/lon 0,0); "
+            f"the server will reject each of them as no_gps."
+        )
+    return warnings
 
 
 def _node_token_to_record(token: str, timestamp: str,
@@ -1422,6 +1459,8 @@ def main(argv: list[str] | None = None) -> int:
     if not nodes:
         print("nothing to upload", file=sys.stderr)
         return 1
+    for line in predict_server_rejects(nodes):
+        print(f"[heimdall] heads-up: {line}", file=sys.stderr)
 
     if args.preview:
         for row in nodes[:6]:
@@ -1435,9 +1474,18 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     rc = 0
+    # Cross-check the server's arithmetic: every submitted node should come
+    # back as imported, already seen, or rejected. wdgwars.pl has been seen
+    # returning all-zero counters for a payload it itemised as rejected
+    # moments earlier (issue #1, second identical run), and Heimdall keeps
+    # no state between runs, so make that silence visible instead of letting
+    # it read as a clean upload.
+    accounted = 0
+    counters_parsed = True
     for status, body in upload(nodes, key, endpoint=args.api_url, dry_run=args.dry_run):
         if status == 0:
             print(f"{_INFO()} {body}", file=sys.stderr)
+            counters_parsed = False  # dry-run: no server counters to audit
             continue
         if 200 <= status < 300:
             try:
@@ -1447,6 +1495,7 @@ def main(argv: list[str] | None = None) -> int:
                 rejected = data.get("meshcore_rejected", 0)
                 reasons = data.get("meshcore_reject_reasons") or {}
                 badges = data.get("new_badges") or []
+                accounted += imp + seen + rejected
                 print(f"{_OK()} accepted by wdgwars.pl. "
                       f"{imp} new meshcore nodes, {seen} already on your account.",
                       file=sys.stderr)
@@ -1455,6 +1504,7 @@ def main(argv: list[str] | None = None) -> int:
                 if badges:
                     print(f"  new badges: {badges}", file=sys.stderr)
             except Exception:
+                counters_parsed = False
                 print(f"{_OK()} accepted by wdgwars.pl (HTTP {status}): "
                       f"{_scrub(body[:200], key)}", file=sys.stderr)
         else:
@@ -1477,7 +1527,16 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(f"{_FAIL()} rejected by wdgwars.pl (HTTP {status}): "
                       f"{_scrub(body[:200], key)}", file=sys.stderr)
+            counters_parsed = False
             rc = 1
+    if counters_parsed and accounted < len(nodes):
+        print(f"[heimdall] note: the server's counters account for "
+              f"{accounted} of the {len(nodes)} submitted nodes (imported + "
+              f"already seen + rejected). It gave no verdict for the other "
+              f"{len(nodes) - accounted}. Observed live when re-submitting "
+              f"a payload the server had just itemised as rejected (issue "
+              f"#1); the unaccounted nodes were NOT imported.",
+              file=sys.stderr)
     return rc
 
 

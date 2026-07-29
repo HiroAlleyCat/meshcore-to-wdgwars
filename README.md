@@ -278,6 +278,9 @@ Records batch in chunks of **1000** per request.
 | Want to inspect the installed daily job | Per-OS check: | `systemctl --user cat heimdall.service` (systemd) / `crontab -l` (cron) / `schtasks /Query /TN Heimdall /V` (Windows). |
 | `schtasks: Value for '/TR' option cannot be more than 261 character(s)` | Your install path + CSV path exceed the schtasks /TR limit. | Move the install to a shorter path (e.g. `C:\heimdall\` instead of nested user paths). |
 | Dry-run says HEALTHY but real upload returns `401` | Saved key was rotated or revoked. | Re-run `./run.sh --setup` to save the current key, then `./run.sh --whoami` to verify. |
+| `N rejected: {'bad_node_id': N}` | wdgwars.pl's anti-abuse gate requires a `node_id` of 8-16 lowercase hex. MeshMapper exports only carry a 2-6 hex tail of each node's mesh public key, so every node in a MeshMapper capture currently misses the floor. Nothing in your capture is wrong, and there is nothing valid Heimdall could pad the ID with. | Server-side; reported to LOCOSP with a request to relax the floor for meshcore, and to the MeshMapper maintainer to log more hex digits. v0.4.7+ warns about this before uploading. |
+| `N rejected: {'no_gps': N}` | Records with lat/lon `0,0` are dropped by the server (it needs a map position). MeshMapper writes `0.0,0.0` when it has no GPS fix. | Capture with GPS enabled / a fix acquired. v0.4.7+ warns about this before uploading. |
+| Upload says `accepted ... 0 new` and rejected counts vanish on a re-run | The server's counters don't itemise every dropped record; observed live on a repeat submission of an already-rejected payload. Heimdall keeps no state between runs. | v0.4.7+ prints how many submitted nodes got no verdict so the silence is visible. |
 
 ---
 

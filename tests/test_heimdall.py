@@ -260,6 +260,77 @@ class ChunkTests(unittest.TestCase):
         self.assertEqual(list(heimdall.chunked([], 1000)), [])
 
 
+class PredictServerRejectsTests(unittest.TestCase):
+    @staticmethod
+    def _node(node_id="0ce8fe12", lat=51.0, lon=6.0):
+        return {"node_id": node_id, "node_type": "REPEATER", "name": node_id,
+                "lat": lat, "lon": lon, "rssi": None,
+                "first_seen": "2026-07-27 06:37:27", "type": "MESHCORE"}
+
+    def test_clean_records_produce_no_warnings(self):
+        nodes = [self._node(), self._node("94c0d6ab", 50.1, 6.2)]
+        self.assertEqual(heimdall.predict_server_rejects(nodes), [])
+
+    def test_short_node_id_flagged_as_bad_node_id(self):
+        # Real MeshMapper IDs: 2-6 hex, all under the server's 8-hex floor.
+        nodes = [self._node("94c0d6"), self._node("e4"), self._node()]
+        warnings = heimdall.predict_server_rejects(nodes)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("2 of 3", warnings[0])
+        self.assertIn("bad_node_id", warnings[0])
+
+    def test_uppercase_and_overlong_ids_also_flagged(self):
+        # The gate is lowercase-only and capped at 16 hex; a 64-hex public
+        # key or an uppercase ID misses it just like a short one.
+        nodes = [self._node("0CE8FE12"), self._node("a" * 64)]
+        warnings = heimdall.predict_server_rejects(nodes)
+        self.assertIn("2 of 2", warnings[0])
+
+    def test_zero_gps_flagged_as_no_gps(self):
+        nodes = [self._node(lat=0.0, lon=0.0), self._node()]
+        warnings = heimdall.predict_server_rejects(nodes)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("no_gps", warnings[0])
+
+    def test_both_gates_stack(self):
+        nodes = [self._node("e4", 0.0, 0.0)]
+        warnings = heimdall.predict_server_rejects(nodes)
+        self.assertEqual(len(warnings), 2)
+
+
+class UnaccountedNodesNoteTests(unittest.TestCase):
+    """Regression for issue #1: a 2xx response whose counters cover fewer
+    nodes than were submitted must not read as a clean upload."""
+
+    def _run_main(self, response_body: str) -> str:
+        import contextlib
+        import io
+        from unittest import mock
+        csv_path = _write_tmp(SECTIONED_CSV, ".csv")  # parses to 3 nodes
+        err, out = io.StringIO(), io.StringIO()
+        with mock.patch.object(heimdall, "upload",
+                               return_value=[(200, response_body)]), \
+             mock.patch.object(heimdall, "load_key", return_value="k"), \
+             contextlib.redirect_stderr(err), contextlib.redirect_stdout(out):
+            rc = heimdall.main([str(csv_path), "--no-version-check"])
+        self.assertEqual(rc, 0)
+        return err.getvalue()
+
+    def test_all_zero_counters_trigger_note(self):
+        stderr = self._run_main(json.dumps(
+            {"meshcore_imported": 0, "meshcore_already_seen": 0,
+             "meshcore_rejected": 0}))
+        self.assertIn("no verdict", stderr)
+        self.assertIn("3 submitted nodes", stderr)
+
+    def test_fully_accounted_response_stays_quiet(self):
+        stderr = self._run_main(json.dumps(
+            {"meshcore_imported": 1, "meshcore_already_seen": 1,
+             "meshcore_rejected": 1,
+             "meshcore_reject_reasons": {"bad_node_id": 1}}))
+        self.assertNotIn("no verdict", stderr)
+
+
 class VersionTests(unittest.TestCase):
     def test_version_string(self):
         self.assertIsInstance(heimdall.__version__, str)
