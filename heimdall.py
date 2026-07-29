@@ -171,14 +171,10 @@ def collapse_repeat_sightings(
     reports repeats as already_seen. Returns (unique_nodes, collapsed_count);
     input order is preserved.
     """
-    seen: set[str] = set()
-    unique: list[dict[str, Any]] = []
+    uniq: dict[str, dict[str, Any]] = {}
     for n in nodes:
-        if n["node_id"] in seen:
-            continue
-        seen.add(n["node_id"])
-        unique.append(n)
-    return unique, len(nodes) - len(unique)
+        uniq.setdefault(n["node_id"], n)
+    return list(uniq.values()), len(nodes) - len(uniq)
 
 
 # A node_id that is one hex digit repeated (eeeeee, ffff, 000000). Seen in a
@@ -199,16 +195,12 @@ def flag_filler_ids(nodes: list[dict[str, Any]]) -> list[str]:
     for n in nodes:
         if _FILLER_ID_RE.match(n["node_id"]):
             counts[n["node_id"]] = counts.get(n["node_id"], 0) + 1
-    warnings: list[str] = []
-    for node_id, count in counts.items():
-        times = f"{count} sightings" if count > 1 else "1 sighting"
-        warnings.append(
-            f"node_id '{node_id}' ({times}) is a single repeated hex digit; "
-            f"this looks like placeholder output from the capture app "
-            f"rather than a heard node. Uploading it anyway, flagging it "
-            f"so an import of it is not a surprise."
-        )
-    return warnings
+    return [
+        f"node_id '{node_id}' ({count}x) is a single repeated hex digit, "
+        f"which looks like placeholder output from the capture app rather "
+        f"than a heard node. Uploading it anyway."
+        for node_id, count in counts.items()
+    ]
 
 
 # wdgwars.pl's per-record gates, mirrored client-side (see _build_record for
@@ -232,12 +224,10 @@ def predict_server_rejects(nodes: list[dict[str, Any]]) -> list[str]:
                 if not _SERVER_NODE_ID_GATE.match(n["node_id"]))
     if short:
         warnings.append(
-            f"{short} of {len(nodes)} node_ids are outside the 8-16 hex "
-            f"range wdgwars.pl requires; the server will reject each of "
-            f"them as bad_node_id. This is a MeshMapper data limitation, "
-            f"not a capture mistake: its exports only carry a 2-6 hex tail "
-            f"of the mesh public key, and there is nothing valid Heimdall "
-            f"could pad it with."
+            f"{short} of {len(nodes)} node_ids are outside the 8-16 hex range "
+            f"wdgwars.pl requires, so the server will reject them as "
+            f"bad_node_id. MeshMapper exports only carry a 2-6 hex tail of "
+            f"the mesh public key; nothing here is fixable client-side."
         )
     no_gps = sum(1 for n in nodes if not n["lat"] and not n["lon"])
     if no_gps:
@@ -1535,12 +1525,12 @@ def main(argv: list[str] | None = None) -> int:
     # moments earlier (issue #1, second identical run), and Heimdall keeps
     # no state between runs, so make that silence visible instead of letting
     # it read as a clean upload.
-    accounted = 0
-    counters_parsed = True
+    # None means "no counters to audit" (dry-run, or a body we couldn't parse).
+    accounted: int | None = 0
     for status, body in upload(nodes, key, endpoint=args.api_url, dry_run=args.dry_run):
         if status == 0:
             print(f"{_INFO()} {body}", file=sys.stderr)
-            counters_parsed = False  # dry-run: no server counters to audit
+            accounted = None
             continue
         if 200 <= status < 300:
             try:
@@ -1550,7 +1540,8 @@ def main(argv: list[str] | None = None) -> int:
                 rejected = data.get("meshcore_rejected", 0)
                 reasons = data.get("meshcore_reject_reasons") or {}
                 badges = data.get("new_badges") or []
-                accounted += imp + seen + rejected
+                if accounted is not None:
+                    accounted += imp + seen + rejected
                 print(f"{_OK()} accepted by wdgwars.pl. "
                       f"{imp} new meshcore nodes, {seen} already on your account.",
                       file=sys.stderr)
@@ -1559,7 +1550,7 @@ def main(argv: list[str] | None = None) -> int:
                 if badges:
                     print(f"  new badges: {badges}", file=sys.stderr)
             except Exception:
-                counters_parsed = False
+                accounted = None
                 print(f"{_OK()} accepted by wdgwars.pl (HTTP {status}): "
                       f"{_scrub(body[:200], key)}", file=sys.stderr)
         else:
@@ -1582,16 +1573,15 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(f"{_FAIL()} rejected by wdgwars.pl (HTTP {status}): "
                       f"{_scrub(body[:200], key)}", file=sys.stderr)
-            counters_parsed = False
+            accounted = None
             rc = 1
-    if counters_parsed and accounted < len(nodes):
+    if accounted is not None and accounted < len(nodes):
         print(f"[heimdall] note: the server's counters account for "
               f"{accounted} of the {len(nodes)} submitted nodes (imported + "
-              f"already seen + rejected). It gave no verdict for the other "
-              f"{len(nodes) - accounted}. Observed live when re-submitting "
-              f"a payload the server had just itemised as rejected (issue "
-              f"#1); the unaccounted nodes were NOT imported.",
-              file=sys.stderr)
+              f"already seen + rejected), and gave no verdict for the other "
+              f"{len(nodes) - accounted}. Seen live when re-submitting a "
+              f"payload it had just itemised as rejected (issue #1); the "
+              f"unaccounted nodes were NOT imported.", file=sys.stderr)
     return rc
 
 

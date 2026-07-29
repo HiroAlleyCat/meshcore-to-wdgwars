@@ -374,7 +374,7 @@ class FillerIdTests(unittest.TestCase):
         warnings = heimdall.flag_filler_ids(nodes)
         self.assertEqual(len(warnings), 1)
         self.assertIn("'eeeeee'", warnings[0])
-        self.assertIn("3 sightings", warnings[0])
+        self.assertIn("(3x)", warnings[0])
 
     def test_normal_ids_not_flagged(self):
         nodes = [self._node("94c0d6"), self._node("0ce8"),
