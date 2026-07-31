@@ -19,9 +19,9 @@ from pathlib import Path
 def _check_live_key_guard() -> None:
     if os.environ.get("HEIMDALL_TEST_ALLOW_LIVE_KEY") == "1":
         return
-    # Mirror heimdall._config_dir() — without importing heimdall, so the
+    # Mirror heimdall._config_dir(), without importing heimdall, so the
     # guard can never be skipped by an import-time error in the module
-    # under test. (Heimdall itself is pure stdlib — no gungnir here.)
+    # under test. (Heimdall itself is pure stdlib, no gungnir here.)
     if os.name == "nt":
         base = os.environ.get("APPDATA") or str(
             Path.home() / "AppData" / "Roaming")

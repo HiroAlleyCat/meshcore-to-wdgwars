@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/banner.png" alt="Heimdall — Odin's watcher for the WDGWars mesh" width="100%"/>
+  <img src="assets/banner.png" alt="Heimdall. Odin's watcher for the WDGWars mesh" width="100%"/>
 </p>
 
 <p align="center">
@@ -14,16 +14,16 @@
 
 Convert **MeshMapper** "Logs → Copy CSV" exports (and other Meshcore LoRa capture formats, over time) to WDGWars-compatible JSON and optionally upload them. Sibling tool to [adsb-to-wdgwars](https://github.com/Yggdrasil-AI-labs/adsb-to-wdgwars) (Muninn); same HMAC envelope, same `/api/upload/` endpoint, different payload slot. Muninn fills `aircraft`; Heimdall fills `meshcore_nodes`.
 
-**Scope:** Heimdall is for **Meshcore LoRa observations from your own captures**. The WDGWars mesh channel is specifically for Meshcore (LoRa, sub-GHz). Other 802.15.4 traffic — Zigbee, Thread, generic mesh-sounding protocols — does not belong here and will not be accepted upstream. If your data came from a real Meshcore receiver (MeshMapper app, T-Beam running Meshcore Companion, Cardputer ADV + LoRa cap, Heltec V3, etc.), you're in the right place.
+**Scope:** Heimdall is for **Meshcore LoRa observations from your own captures**. The WDGWars mesh channel is specifically for Meshcore (LoRa, sub-GHz). Other 802.15.4 traffic. Zigbee, Thread, generic mesh-sounding protocols. Does not belong here and will not be accepted upstream. If your data came from a real Meshcore receiver (MeshMapper app, T-Beam running Meshcore Companion, Cardputer ADV + LoRa cap, Heltec V3, etc.), you're in the right place.
 
 ## Family
 
 Sibling repos in the WDGWars feeder family:
 
-- [Muninn](https://github.com/Yggdrasil-AI-labs/adsb-to-wdgwars) — ADS-B feeder
-- [wigle-to-wdgwars](https://github.com/Yggdrasil-AI-labs/wigle-to-wdgwars) — WiGLE Wi-Fi/BLE feeder
-- [gungnir](https://github.com/Yggdrasil-AI-labs/gungnir) — shared HMAC transport library
-- [wdgwars-api-tester](https://github.com/Yggdrasil-AI-labs/wdgwars-api-tester) — API surface probe
+- [Muninn](https://github.com/Yggdrasil-AI-labs/adsb-to-wdgwars). ADS-B feeder
+- [wigle-to-wdgwars](https://github.com/Yggdrasil-AI-labs/wigle-to-wdgwars). WiGLE Wi-Fi/BLE feeder
+- [gungnir](https://github.com/Yggdrasil-AI-labs/gungnir), shared HMAC transport library
+- [wdgwars-api-tester](https://github.com/Yggdrasil-AI-labs/wdgwars-api-tester). API surface probe
 
 ---
 
@@ -132,13 +132,13 @@ Want to confirm your saved key is good before running a real upload? `./run.sh -
 If you keep a refreshed MeshMapper export at a known path (e.g. a nightly RX-log copy), let Heimdall install a daily timer that uploads it for you:
 
 ```bash
-# Interactive — picks the right mechanism for your OS (systemd / cron / schtasks)
+# Interactive - picks the right mechanism for your OS (systemd / cron / schtasks)
 ./run.sh --schedule --schedule-csv /data/mesh/nightly.csv
 
 # Default time is 03:00 local; override with --schedule-time HH:MM
 ./run.sh --schedule --schedule-csv /data/mesh/nightly.csv --schedule-time 04:30
 
-# First install dry-run — parses + signs but never POSTs. Re-run without
+# First install dry-run - parses + signs but never POSTs. Re-run without
 # --schedule-dry-run to go live once you trust the daily cycle.
 ./run.sh --schedule --schedule-csv /data/mesh/nightly.csv --schedule-dry-run
 ```
@@ -159,7 +159,7 @@ To remove every Heimdall-managed scheduled task on the host:
 ./run.sh --unschedule
 ```
 
-The API key is **never** baked into the unit file / cron line / schtasks action — the saved-on-disk key file is read at run-time instead. Inspecting the installed entry (`systemctl --user cat heimdall.service` or `crontab -l` or `schtasks /Query /TN Heimdall /V`) will never expose your credential.
+The API key is **never** baked into the unit file / cron line / schtasks action. The saved-on-disk key file is read at run-time instead. Inspecting the installed entry (`systemctl --user cat heimdall.service` or `crontab -l` or `schtasks /Query /TN Heimdall /V`) will never expose your credential.
 
 ---
 
@@ -197,7 +197,7 @@ Heimdall also does a quiet daily check against the GitHub releases API. If a new
 
 Format is auto-detected (by extension, then by content sniff). One `DISC`/`RX`/`TX` observation becomes one node record. **Note:** the CSV `TX`/`RX`/`DISC` sections log SNR and the receiver's noise floor but no per-node RSSI, so those records carry `rssi: null`; the offline-JSON `DISC` pings include real `local_rssi`. See [`examples/`](examples/) for a scrubbed sample of each format.
 
-Italicised rows are not yet implemented — they are on the roadmap once sample data lands. **Have a real capture you can share? See the pinned ["Wanted: real-world Meshcore capture samples"](https://github.com/Yggdrasil-AI-labs/meshcore-to-wdgwars/issues/1) issue for what we're looking for and how to scrub before sending.**
+Italicised rows are not yet implemented. They are on the roadmap once sample data lands. **Have a real capture you can share? See the pinned ["Wanted: real-world Meshcore capture samples"](https://github.com/Yggdrasil-AI-labs/meshcore-to-wdgwars/issues/1) issue for what we're looking for and how to scrub before sending.**
 
 ---
 
@@ -271,7 +271,7 @@ Records batch in chunks of **1000** per request.
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `[heimdall] note: --api-key is deprecated, use --key.` | You're on a fresh `v0.3.0+` with old shell history / docs. | Rename the flag — both still work today, but `--api-key` will be dropped in a future release. |
+| `[heimdall] note: --api-key is deprecated, use --key.` | You're on a fresh `v0.3.0+` with old shell history / docs. | Rename the flag, both still work today, but `--api-key` will be dropped in a future release. |
 | `--schedule needs --schedule-csv PATH` | The scheduler needs a fixed CSV file path to upload daily. | Pick a path you keep refreshing (your nightly MeshMapper export) and pass it: `./run.sh --schedule --schedule-csv /path/to/file.csv`. |
 | `--schedule needs a saved WDGWars API key` | The installed timer reads the saved key at run-time; you haven't saved one yet. | Run `./run.sh --setup` first, then re-run `--schedule`. |
 | Daily upload runs but nothing appears on WDGWars | The schedule was installed with `--schedule-dry-run`. | Re-run `--schedule` without `--schedule-dry-run` to go live. |
@@ -329,21 +329,21 @@ The target per-record schema is `node_id, node_type, name, lat, lon, rssi, first
 
 ## Credits
 
-- **Muninn** ([adsb-to-wdgwars](https://github.com/Yggdrasil-AI-labs/adsb-to-wdgwars)) — parent pattern. HMAC envelope, three-deploy-mode design, Pyodide web flavour all originate there.
-- **FusedStamen** — surfaced the WDGWars mesh ingest target schema and suggested the MeshMapper CSV bridge angle.
-- **Wild!Radio** — supplied the MeshMapper RX-log sample used to wire the field map.
-- **[@nicolasrata](https://github.com/nicolasrata)** — contributed the first real-world baseline ([issue #1](https://github.com/Yggdrasil-AI-labs/meshcore-to-wdgwars/issues/1)): a multi-section MeshMapper export and a MeshCore offline ping-log JSON, which is what the v0.4.0 section-aware CSV and JSON parsers were built and tested against.
-- **MeshMapper** ([wiki](https://wiki.meshmapper.net/)) — upstream Meshcore visualisation platform whose CSV export is Heimdall's first supported input.
+- **Muninn** ([adsb-to-wdgwars](https://github.com/Yggdrasil-AI-labs/adsb-to-wdgwars)), parent pattern. HMAC envelope, three-deploy-mode design, Pyodide web flavour all originate there.
+- **FusedStamen**: surfaced the WDGWars mesh ingest target schema and suggested the MeshMapper CSV bridge angle.
+- **Wild!Radio**: supplied the MeshMapper RX-log sample used to wire the field map.
+- **[@nicolasrata](https://github.com/nicolasrata)**: contributed the first real-world baseline ([issue #1](https://github.com/Yggdrasil-AI-labs/meshcore-to-wdgwars/issues/1)): a multi-section MeshMapper export and a MeshCore offline ping-log JSON, which is what the v0.4.0 section-aware CSV and JSON parsers were built and tested against.
+- **MeshMapper** ([wiki](https://wiki.meshmapper.net/)), upstream Meshcore visualisation platform whose CSV export is Heimdall's first supported input.
 
 ---
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE).
 
 ---
 
 ## Related
 
-- [adsb-to-wdgwars](https://github.com/Yggdrasil-AI-labs/adsb-to-wdgwars) — Muninn, the aircraft sibling.
-- [WDGWars](https://wdgwars.pl) — the wardriving game these tools feed.
+- [adsb-to-wdgwars](https://github.com/Yggdrasil-AI-labs/adsb-to-wdgwars). Muninn, the aircraft sibling.
+- [WDGWars](https://wdgwars.pl), the wardriving game these tools feed.

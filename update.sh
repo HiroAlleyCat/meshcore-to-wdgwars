@@ -20,7 +20,7 @@ fi
 
 VENV_DIR=".venv"
 if [ ! -x "$VENV_DIR/bin/python" ]; then
-    echo "No $VENV_DIR/ found — creating it (running setup.sh once is the usual way)..."
+    echo "No $VENV_DIR/ found, creating it (running setup.sh once is the usual way)..."
     if ! python3 -m venv "$VENV_DIR" 2>/dev/null; then
         echo
         echo "Failed to create venv. On Debian/Ubuntu/Raspberry Pi OS install:"

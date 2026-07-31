@@ -15,7 +15,7 @@ What this checks:
     1. The line is inside an "Option B - clone with git" or similar
        manual-install block, AND the block also references
        `python3 -m venv .venv` or `.venv/bin/`. Those are intentional
-       teaching examples — they show the system-python form alongside
+       teaching examples, they show the system-python form alongside
        the venv answer.
     2. The line is preceded by a comment containing `# direct invocation`
        (explicit author override).

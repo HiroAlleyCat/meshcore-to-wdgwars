@@ -23,7 +23,7 @@
   wrappers): fetches `heimdall.py`, `requirements.txt`, and the wrapper
   scripts from this repo's `main` branch on raw.githubusercontent.com
   over HTTPS. The downloaded script is AST-parsed before it atomically
-  replaces the old one. This is an explicit, operator-invoked action —
+  replaces the old one. This is an explicit, operator-invoked action,
   nothing updates itself in the background.
 - **No telemetry or analytics.** Nothing else leaves the machine.
 - ❌ **No `eval`, `exec`, `os.system`, or `shell=True` subprocess calls.**
@@ -36,16 +36,16 @@
   (`~/.config/heimdall/api.key`, `%APPDATA%\heimdall\api.key` on
   Windows). `--api-key` survives only as a hidden deprecated alias.
 - `--setup` / `--save-key` persist the key with `mode 0600`, an atomic
-  create, and symlink refusal — same shape as Muninn's
+  create, and symlink refusal, same shape as Muninn's
   `~/.config/muninn/api.key`.
 - The key never appears in scheduler unit files, cron lines, or task
-  definitions — scheduled runs re-read the saved key file at run time.
+  definitions. Scheduled runs re-read the saved key file at run time.
 - The key is sent over HTTPS only, in the `X-API-Key` request header
   to `wdgwars.pl`. The TLS context is Python's `ssl.create_default_context()`
-  default — system trust store, hostname verification on, TLS 1.2+.
+  default, system trust store, hostname verification on, TLS 1.2+.
 - Heimdall does not print the API key in any output, success or
   failure. If it ever shows up in a server-response body or stack
-  trace, that's a bug — please open an issue.
+  trace, that's a bug, please open an issue.
 
 ## What the API key can do
 
@@ -80,14 +80,14 @@ envelope  = {"data": data_b64, "nonce": nonce, "sig": sig}
 ```
 
 `json.dumps(..., separators=(",", ":"))` and `ensure_ascii=True`
-(Python's default) are load-bearing — different whitespace or
+(Python's default) are load-bearing, different whitespace or
 non-ASCII handling produces a different signature.
 
 ## Static-analysis review
 
 A review of Heimdall against the SonarCloud SAST finding classes (path
 traversal, command/argument injection, insecure temp use, unsafe DB opens)
-found nothing to remediate — the scheduler arguments (including the CSV path)
+found nothing to remediate, the scheduler arguments (including the CSV path)
 are shell-quoted, the API key never reaches the command line, and `save_key`
 refuses symlinks and uses mode 600. The full write-up is in
 [SECURITY-FINDINGS.md](SECURITY-FINDINGS.md); the posture is locked by

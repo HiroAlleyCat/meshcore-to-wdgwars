@@ -1,4 +1,4 @@
-// Heimdall — web frontend. Loads Pyodide, runs heimdall.py's parser
+// Heimdall. Web frontend. Loads Pyodide, runs heimdall.py's parser
 // client-side against a dropped MeshMapper CSV, then offers download
 // or upload.
 
@@ -99,7 +99,7 @@ json.dumps({"records": records, "format": fmt})
     const last = lines[lines.length - 1] || raw;
     let friendly = `Couldn't parse ${file.name}. `;
     if (/UnicodeDecodeError|codec can't decode/i.test(raw)) {
-      friendly += "File looks binary — Heimdall expects a text CSV export.";
+      friendly += "File looks binary. Heimdall expects a text CSV export.";
     } else {
       friendly += `(${last})`;
     }
@@ -288,13 +288,13 @@ json.dumps({"data": _data_b64, "nonce": _nonce, "sig": _sig})
       dryOutputEl.textContent = dryLog;
       dryOutputEl.classList.add("show");
       setUploadStatus(
-        `[DRY] Built ${chunks} chunk(s) — ${records.length} nodes. ` +
+        `[DRY] Built ${chunks} chunk(s), ${records.length} nodes. ` +
         `Nothing sent. Inspect the request below.`,
         "warn",
       );
     } else {
       setUploadStatus(
-        `Done — ${records.length} nodes sent, ${totalImported} imported, ${totalSeen} already-seen.`,
+        `Done, ${records.length} nodes sent, ${totalImported} imported, ${totalSeen} already-seen.`,
         "ok",
       );
     }

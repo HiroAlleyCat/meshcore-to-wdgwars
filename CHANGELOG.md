@@ -87,8 +87,8 @@ All notable changes to Heimdall are documented here. Format follows
 - **`--update` now refreshes the six wrapper scripts** (`run`/`setup`/
   `update` `.sh`/`.bat`) on the raw-download (ZIP install) path, closing the
   family bug where a fix living in a wrapper could never reach ZIP-installed
-  users through self-update. The list is hard-coded — not a remote
-  manifest — so the update path can never be steered into writing arbitrary
+  users through self-update. The list is hard-coded, not a remote
+  manifest. So the update path can never be steered into writing arbitrary
   filenames. Wrapper download failures warn and continue; deleted wrappers
   are respected; `.sh` wrappers get their exec bit restored on POSIX.
   Covered by `tests/test_update_wrappers.py`. Same implementation shape as
@@ -242,7 +242,7 @@ on both.
 ### Changed
 
 - Flat single-section "Copy CSV" exports still parse exactly as before
-  (`examples/sample.csv` is unchanged) — the section logic only engages when
+  (`examples/sample.csv` is unchanged), the section logic only engages when
   `--- X Log ---` markers are present.
 - Web (Pyodide) parser brought to parser parity with the root module and to
   v0.4.0; its dropzone calls `parse_file` and reports the detected format.
@@ -256,7 +256,7 @@ on both.
 
 ## CI quality gates + security review (tooling-only, landed unversioned mid-0.4.x)
 
-Tooling and CI only — no change to `heimdall.py` behavior, so no version bump.
+Tooling and CI only, no change to `heimdall.py` behavior, so no version bump.
 (Header renamed from "[Unreleased]" in v0.4.5: the work has long been on
 `main` and this section's mid-file position kept confusing changelog reads.)
 
@@ -266,23 +266,23 @@ SonarCloud quality gate → Snyk dependency scan → gated release-artifact buil
 The `sonarcloud` / `snyk` jobs stay red until the repo is imported into
 SonarCloud and the `SONAR_TOKEN` / `SNYK_TOKEN` Actions secrets are added (see
 CI.md); the test and coverage stage is independent and passes on its own.
-(Heimdall is pure stdlib, so the Snyk stage is effectively a no-op — kept for
+(Heimdall is pure stdlib, so the Snyk stage is effectively a no-op, kept for
 family parity.)
 
 A review against the SonarCloud SAST finding classes found nothing to
-remediate — the scheduler arguments (including the CSV path) are shell-quoted,
+remediate, the scheduler arguments (including the CSV path) are shell-quoted,
 the API key never reaches the command line, and `save_key` refuses symlinks
 and uses mode 600. See SECURITY-FINDINGS.md.
 
 ### Added
 
-- `.github/workflows/ci-quality-gates.yml` — gated quality + security pipeline.
+- `.github/workflows/ci-quality-gates.yml`: gated quality + security pipeline.
 - `sonar-project.properties`, `requirements-dev.txt`, `pyproject.toml`
   (pytest + coverage config with a regression floor), and `CI.md`.
-- `tests/test_security.py` — regression tests locking in the existing
+- `tests/test_security.py`: regression tests locking in the existing
   defenses (shell-quoting incl. the CSV path, no-key-in-argv, safe key-file
   writes).
-- `SECURITY-FINDINGS.md` — the security review write-up; pointer added to
+- `SECURITY-FINDINGS.md`: the security review write-up; pointer added to
   `SECURITY.md`.
 
 ## [0.3.1] - 2026-06-05 - Structured 413 message for the 15 MB upload cap
@@ -331,14 +331,14 @@ so muscle memory transfers across the family.
   Windows. Default time `03:00`. Every artifact carries a
   `# managed-by-heimdall` marker so the uninstaller can find and
   remove it cleanly. The API key is **never** baked into the unit
-  file / cron line / schtasks action — the saved-on-disk key file
+  file / cron line / schtasks action, the saved-on-disk key file
   is read at run-time instead.
 - `--key` flag (canonical name, matches Muninn + wigle).
 - `--api-url` flag (canonical name, matches Muninn).
-- `scripts/smoke.sh` — pre-release smoke (README linter + AST/import
+- `scripts/smoke.sh`: pre-release smoke (README linter + AST/import
   + offline tests + `--version`/`--help` + Linux/systemd unit-write
   roundtrip + no-key-leak assertion).
-- `scripts/check_readme_examples.py` — README linter ported from
+- `scripts/check_readme_examples.py`: README linter ported from
   Muninn / wigle. Auto-detects the entrypoint script. Catches
   `python3 heimdall.py ...` examples that drift outside venv-teaching
   blocks. Heimdall is stdlib-only and works without a venv, so two
@@ -347,7 +347,7 @@ so muscle memory transfers across the family.
 - README `## Running on a schedule` section with per-OS mechanism
   table.
 - README `## Troubleshooting` section.
-- `tests/test_scheduler.py` — 17 new tests covering the pure
+- `tests/test_scheduler.py`: 17 new tests covering the pure
   renderers (`render_systemd_units` / `render_cron_line` /
   `render_schtasks_create`), HH:MM validation, the schedule mechanism
   selector, and a no-key-leak assertion that the renderers never
@@ -377,7 +377,7 @@ so muscle memory transfers across the family.
 
 - gungnir extraction: Heimdall is still pure stdlib with an inlined
   HMAC envelope. The `v0.2-gungnir` branch from earlier never landed
-  on `main`. Architectural refactor, not alignment work — filed as
+  on `main`. Architectural refactor, not alignment work, filed as
   a tracked note for a separate session.
 
 ## [0.2.2] - 2026-06-01 - setup.sh: PEP 668 / Bookworm fix
@@ -400,7 +400,7 @@ script prints the exact `sudo apt install -y python3-venv python3-full`
 line and exits cleanly instead of leaving a half-installed state.
 
 Heimdall has no third-party deps today, so this is mostly future-proofing
-the wrapper — but it removes the Bookworm crash that bit anyone running
+the wrapper, but it removes the Bookworm crash that bit anyone running
 `./setup.sh` to save their API key.
 
 ### Fixed
@@ -436,12 +436,12 @@ after the dep is added.
   for Python ≥ 3.10 first, fetch `requirements.txt` from `main`, run
   `pip install --upgrade -r requirements.txt`, then invoke
   `heimdall.py`.** Order matters across versions that add or bump a
-  dep — pip has to know about the new dep before heimdall.py tries to
+  dep. Pip has to know about the new dep before heimdall.py tries to
   import it. Previously the wrappers just ran `python heimdall.py
   --setup` (or `--update`) with no dep management at all.
 
 - `_fetch_raw(path, dest)` and `_pip_install_requirements(script_dir)`
-  helpers in `heimdall.py` — used by `--update` to refresh sibling
+  helpers in `heimdall.py`. Used by `--update` to refresh sibling
   files atomically and invoke pip against the currently-running
   interpreter.
 
@@ -473,7 +473,7 @@ after the dep is added.
   paths, the new key-persistence flow, and the `--update` workflow.
 
 
-## [0.1.0] — initial alpha
+## [0.1.0] - initial alpha
 
 ### Added
 - **CLI** (`heimdall.py`) that parses a MeshMapper "Logs → Copy CSV"

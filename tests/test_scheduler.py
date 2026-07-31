@@ -1,8 +1,8 @@
 """Tests for the schedule installer's pure renderers.
 
 The renderers (render_systemd_units / render_cron_line /
-render_schtasks_create) are pure functions — they don't touch disk or
-shell out — so they can be unit-tested without monkeypatching anything.
+render_schtasks_create) are pure functions, they don't touch disk or
+shell out. So they can be unit-tested without monkeypatching anything.
 The install/uninstall wrappers that DO touch the system are covered by
 scripts/smoke.sh, not here.
 """
@@ -142,7 +142,7 @@ class ScheduleMechanismTests(unittest.TestCase):
 
 class CliBackCompatTests(unittest.TestCase):
     """The deprecated --api-key / --endpoint flags must keep working
-    until v0.4 — until then they map onto --key / --api-url."""
+    until v0.4, until then they map onto --key / --api-url."""
 
     def test_api_key_alias_still_parses(self):
         # We can't run main() without side effects, but argparse

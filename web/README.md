@@ -1,4 +1,4 @@
-# Heimdall — web frontend
+# Heimdall - web frontend
 
 A static, single-page version of Heimdall that runs entirely in the
 browser. The Python parser from `../heimdall.py` executes client-side
@@ -6,19 +6,19 @@ via [Pyodide](https://pyodide.org/), so a dropped MeshMapper CSV never
 leaves the user's machine until they click **Upload**.
 
 **Headless / CLI users:** ignore this directory. The CLI in the repo
-root (`heimdall.py`) is completely independent — no shared runtime,
+root (`heimdall.py`) is completely independent, no shared runtime,
 no shared deps, no display required.
 
 ## What's here
 
-- `index.html` — the page itself (inline CSS, matches the WDGWars cyan-on-black aesthetic)
-- `app.js` — drop-zone wiring + Pyodide bootstrap + HMAC upload
-- `heimdall.py` — build-time copy of the root `heimdall.py` (the parser runs as-is)
-- `serve.py` — optional self-hosted server that proxies `/api/upload/` to wdgwars.pl (so direct browser upload works on a local install)
+- `index.html`: the page itself (inline CSS, matches the WDGWars cyan-on-black aesthetic)
+- `app.js`: drop-zone wiring + Pyodide bootstrap + HMAC upload
+- `heimdall.py`: build-time copy of the root `heimdall.py` (the parser runs as-is)
+- `serve.py`: optional self-hosted server that proxies `/api/upload/` to wdgwars.pl (so direct browser upload works on a local install)
 
-## Local preview (read-only — parse / download only)
+## Local preview (read-only - parse / download only)
 
-Pyodide and ES modules require an HTTP server — opening `index.html`
+Pyodide and ES modules require an HTTP server, opening `index.html`
 directly via `file://` will not work.
 
 ```bash
@@ -28,7 +28,7 @@ python3 -m http.server 8000
 ```
 
 `http.server` only serves static files, so the in-browser **Direct
-upload** button will still fail with CORS — the upload UI shows up
+upload** button will still fail with CORS, the upload UI shows up
 because the page is no longer on `*.github.io`, but the actual POST
 to `wdgwars.pl` is blocked. For local preview / debugging this is fine.
 
@@ -52,7 +52,7 @@ Open the page, then in **Settings → Endpoint** change the value from
 ```
 
 Now Direct upload routes through the local proxy and reaches WDG. Your
-API key never leaves your machine in the page — it travels to `serve.py`
+API key never leaves your machine in the page, it travels to `serve.py`
 over loopback and then to `wdgwars.pl` server-to-server.
 
 ## Public deploy: parse-only
@@ -89,7 +89,7 @@ copy automatically on every push to `main` that touches `web/**` or
 
 ## Deployment
 
-Static. Any static host works — GitHub Pages, Netlify, Cloudflare
+Static. Any static host works. GitHub Pages, Netlify, Cloudflare
 Pages, an `nginx` block on your own box. There is no server-side
 component (the optional `serve.py` is for self-hosters who want the
 direct-upload feature without the public deploy's CORS hiccup).

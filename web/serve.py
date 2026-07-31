@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Heimdall web — self-hosted server with WDGWars upload proxy.
+Heimdall web, self-hosted server with WDGWars upload proxy.
 
 The public GitHub Pages deploy can't direct-upload because wdgwars.pl's API
 doesn't return CORS headers. This script gives self-hosters a working path:
@@ -15,7 +15,7 @@ Usage:
 Then in the page's "Endpoint" field, use:
     /api/upload/
 
-(relative path — points at this proxy instead of the cross-origin WDG URL).
+(relative path, points at this proxy instead of the cross-origin WDG URL).
 
 Stdlib only. No dependencies. Runs anywhere Python 3.8+ is installed.
 """
@@ -82,7 +82,7 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Heimdall web — self-hosted with upload proxy")
+    ap = argparse.ArgumentParser(description="Heimdall web, self-hosted with upload proxy")
     ap.add_argument("--port", type=int, default=8765, help="port to bind (default: 8765)")
     ap.add_argument("--host", default="127.0.0.1", help="host to bind (default: 127.0.0.1)")
     ap.add_argument("--upstream", default=DEFAULT_UPSTREAM,
@@ -105,7 +105,7 @@ def main():
 
     with socketserver.ThreadingTCPServer((args.host, args.port), ProxyHandler) as srv:
         srv.allow_reuse_address = True
-        print(f"Heimdall web — serving {web_dir}")
+        print(f"Heimdall web, serving {web_dir}")
         print(f"  Static:   http://{args.host}:{args.port}/")
         print(f"  Proxy:    POST /api/upload/  ->  {args.upstream}")
         print(f"  In the page Settings, set Endpoint to:  /api/upload/")

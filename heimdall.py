@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-heimdall.py — MeshMapper CSV to WDGWars meshcore_nodes uplink.
+heimdall.py. MeshMapper CSV to WDGWars meshcore_nodes uplink.
 
 Sibling of Muninn (adsb-to-wdgwars). Same HMAC envelope, same /api/upload/
 endpoint, different payload slot. Muninn fills `aircraft`; Heimdall fills
@@ -16,7 +16,7 @@ history) and decided to keep the inline transport; transport fixes that
 land in gungnir must be ported here by hand.
 
 Target schema (`type` is the constant envelope marker; the node's own role
-goes in the separate `node_type` field — earlier releases swapped these two
+goes in the separate `node_type` field, earlier releases swapped these two
 and had every upload accepted with meshcore_imported: 0):
 
     node_id, node_type, name, lat, lon, rssi, first_seen, type
@@ -60,7 +60,7 @@ SYSTEMD_UNIT_NAME = "heimdall"  # .service + .timer share this stem
 WINDOWS_TASK_NAME = "Heimdall"
 DEFAULT_SCHEDULE_TIME = "03:00"
 
-# Every record in the meshcore_nodes envelope carries a constant `type` —
+# Every record in the meshcore_nodes envelope carries a constant `type` - 
 # it marks the record as belonging to this envelope family, mirroring how
 # Muninn's `aircraft` records don't repeat "aircraft" per row. The node's
 # own role (repeater/client/zigbee/...) goes in the separate `node_type`
@@ -68,7 +68,7 @@ DEFAULT_SCHEDULE_TIME = "03:00"
 # node_type + a constant `type: MESHCORE` returned meshcore_imported: 1).
 # Every Heimdall release before this one put the role in `type` and never
 # sent `node_type` at all, and every one of those uploads came back
-# accepted (ok: true) but with meshcore_imported: 0 — the server silently
+# accepted (ok: true) but with meshcore_imported: 0 - the server silently
 # drops unrecognised record shapes rather than erroring, so this is easy
 # to get wrong quietly. See CHANGELOG for the v0.4.2 writeup.
 MESHCORE_ENVELOPE_TYPE = "MESHCORE"
@@ -148,7 +148,7 @@ def _build_record(node_id: str, node_type: str, name: str,
     (e.g. "0CE8"), so this was one guaranteed rejection. The *length* gate
     (8-16 hex) is a separate, unresolved problem: real MeshMapper IDs run
     2-4 hex chars, so even lower-cased they may still miss on length alone
-    — nothing to pad with here since we're never given more bytes than
+, nothing to pad with here since we're never given more bytes than
     MeshMapper exposes. Left for wdgwars.pl to confirm via
     meshcore_reject_reasons."""
     return {
@@ -398,7 +398,7 @@ def _prompt_yes_no(question: str, default: bool = True) -> bool:
     """Ask a y/n question on stderr. Returns the default on EOF or Ctrl+C
     so non-interactive runs do not hang.
 
-    Always emits a newline after the answer when stdin is piped — interactive
+    Always emits a newline after the answer when stdin is piped, interactive
     TTY input gets its newline from the terminal, piped input doesn't, which
     would otherwise glue the next section header onto the prompt line.
     """
@@ -777,7 +777,7 @@ def _version_tuple(v: str) -> tuple[int, ...] | None:
 
 def _is_newer(latest: str, current: str) -> bool:
     """True only if `latest` is a well-formed dotted version strictly
-    greater than `current`. A malformed tag never triggers the notice —
+    greater than `current`. A malformed tag never triggers the notice,
     silently skipping beats wrongly telling someone on v0.4.0 to "upgrade"
     to v0.3.0, which is what a plain `latest != current` check does the
     moment GitHub's "latest release" isn't the highest version (issue #9)."""
@@ -884,7 +884,7 @@ def _refresh_wrappers(script_dir: Path) -> None:
     them too. The list is hard-coded rather than fetched from a remote
     manifest so the update path can never be steered into writing
     arbitrary filenames. A wrapper that fails to download is skipped
-    with a warning — the heimdall.py update is never rolled back over a
+    with a warning. The heimdall.py update is never rolled back over a
     wrapper. Wrappers the user deleted are respected and not re-planted.
     """
     for name in WRAPPER_SCRIPTS:
@@ -907,7 +907,7 @@ def _refresh_wrappers(script_dir: Path) -> None:
 
 def _pip_install_requirements(script_dir: Path) -> None:
     """Best-effort `python -m pip install -r requirements.txt` against the
-    interpreter currently running heimdall. Never fails the caller — prints
+    interpreter currently running heimdall. Never fails the caller, prints
     a clear hint if pip is missing or the install errors out, so the update
     return code still reflects the heimdall.py update itself.
 
@@ -919,7 +919,7 @@ def _pip_install_requirements(script_dir: Path) -> None:
     req = script_dir / "requirements.txt"
     if not req.exists():
         return
-    # Skip entirely if requirements.txt has no actual install lines —
+    # Skip entirely if requirements.txt has no actual install lines,
     # avoids printing a misleading "installing deps" banner when there's
     # nothing to install.
     has_deps = any(
@@ -1085,7 +1085,7 @@ def _shell_quote(s: str) -> str:
 def _schedule_argv(csv_path: Path) -> list[str]:
     """Build the heimdall argv that the scheduler will run.
 
-    Always reads the saved key from disk (no --key on the command line — that
+    Always reads the saved key from disk (no --key on the command line, that
     would leak the secret into the unit file / crontab / schtasks output,
     all of which are readable by other processes on the box).
     """
@@ -1097,7 +1097,7 @@ def _schedule_argv(csv_path: Path) -> list[str]:
 def render_systemd_units(time_hhmm: str, csv_path: Path,
                          python_exe: str, script_path: Path,
                          dry_run: bool = False) -> dict[str, str]:
-    """Render (service, timer) unit text. Pure — does not touch disk."""
+    """Render (service, timer) unit text. Pure. Does not touch disk."""
     time_hhmm = _validate_hhmm(time_hhmm)
     argv = [python_exe, str(script_path), str(csv_path)]
     if dry_run:
@@ -1283,7 +1283,7 @@ def install_windows_task(time_hhmm: str, csv_path: Path,
           file=sys.stderr)
     print(f"[schedule] run now: schtasks /Run /TN {WINDOWS_TASK_NAME}",
           file=sys.stderr)
-    print(f"[schedule] (Task Scheduler doesn't capture stdout — to see "
+    print(f"[schedule] (Task Scheduler doesn't capture stdout, to see "
           f"what a run did, fire it from PowerShell directly.)",
           file=sys.stderr)
     return 0
@@ -1368,7 +1368,7 @@ def main(argv: list[str] | None = None) -> int:
                         "showing account stats; exits after.")
     # --key is the canonical name (matches Muninn + wigle-to-wdgwars).
     # --api-key is the legacy name; kept as a deprecated alias. Removal
-    # was slated for v0.4 but deliberately slipped — drop it in the next
+    # was slated for v0.4 but deliberately slipped. Drop it in the next
     # major once the operator confirms no schedulers still pass it. The
     # actual value lands on args.key after the merge below.
     p.add_argument("--key", help="WDGWars API key (or set WDGWARS_API_KEY, "
@@ -1439,7 +1439,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.update:
         return _run_update()
 
-    # Schedule mutation modes — don't need a key in process but the
+    # Schedule mutation modes. Don't need a key in process but the
     # installed unit will need one at run-time. cmd_schedule_headless
     # checks for a saved key and exits early if absent.
     if args.unschedule:

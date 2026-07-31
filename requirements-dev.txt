@@ -1,4 +1,4 @@
-# Development and CI dependencies (not needed at runtime — Heimdall itself is
+# Development and CI dependencies (not needed at runtime - Heimdall itself is
 # pure stdlib). Installed in CI to run the test suite under pytest with
 # coverage, producing the coverage.xml that the SonarCloud quality gate
 # consumes.

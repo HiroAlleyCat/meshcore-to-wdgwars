@@ -4,19 +4,19 @@
 # Exercises the contained, deterministic parts of the install path:
 #   1. README example linter (catches venv-form drift like the Muninn
 #      v2.0.8 footgun the Pi24 user hit).
-#   2. AST parse + import sanity (Heimdall is stdlib-only — no venv
+#   2. AST parse + import sanity (Heimdall is stdlib-only - no venv
 #      needed for the import step).
 #   3. Unit tests with the live-key safety guard explicitly opted-in
 #      (matches the CI invocation, surfaces guard regressions).
 #   4. heimdall.py --version + --help sanity.
 #   5. --schedule headless renders the systemd unit with --dry-run +
-#      marker, in an XDG-isolated home. Linux+systemd only — macOS
+#      marker, in an XDG-isolated home. Linux+systemd only - macOS
 #      gets cron and Windows gets schtasks (both bump into a 261-char
 #      cap once temp-dir paths get long). CI runs Linux, so we focus
 #      there. Aligned with wigle's gate.
 #
 # Live `--schedule` install against the real systemd user manager is
-# NOT part of this script — it requires a clean host and a side-effecting
+# NOT part of this script - it requires a clean host and a side-effecting
 # systemctl --user environment. That belongs in a pre-release manual
 # checklist with a sacrificial key.
 #
@@ -73,14 +73,14 @@ ok "--version + --help"
 # ─── 5. --schedule headless: write unit file to a temp XDG and assert ───
 if [ "$(uname -s)" = "Linux" ] && command -v systemctl >/dev/null 2>&1 \
         && [ -d /run/systemd/system ]; then
-    say "rendering systemd unit (no install) — XDG-isolated..."
+    say "rendering systemd unit (no install). XDG-isolated..."
     export HOME="$TMP_DIR/home"
     mkdir -p "$HOME/.config/heimdall"
     echo "PLACEHOLDER" > "$HOME/.config/heimdall/api.key"
     export XDG_CONFIG_HOME="$HOME/.config"
     SCHED_CSV="$TMP_DIR/nightly.csv"
     touch "$SCHED_CSV"
-    # Suppress systemctl errors — unit file is written BEFORE the call.
+    # Suppress systemctl errors. Unit file is written BEFORE the call.
     python3 heimdall.py --schedule \
         --schedule-csv "$SCHED_CSV" \
         --schedule-time 03:00 \
@@ -110,7 +110,7 @@ if [ "$(uname -s)" = "Linux" ] && command -v systemctl >/dev/null 2>&1 \
         && fail "saved key contents leaked into service ExecStart"
     ok "unit + timer content correct (dry-run + marker + flags + no key leak)"
 else
-    say "(skipping systemd unit smoke — not on a systemd Linux host)"
+    say "(skipping systemd unit smoke, not on a systemd Linux host)"
 fi
 
 say "all smoke checks passed"

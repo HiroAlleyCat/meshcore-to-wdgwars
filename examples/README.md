@@ -6,11 +6,11 @@ A representative MeshMapper "Logs → Copy CSV" export, scrubbed: all
 `latitude` / `longitude` values replaced with `0.0, 0.0` to remove
 receiver-location PII. Timestamps, node IDs, RSSI / SNR, and path
 data are retained because they don't pin a receiver's physical
-location (node IDs are public on the Meshcore mesh — anyone in range
+location (node IDs are public on the Meshcore mesh, anyone in range
 sees the same IDs).
 
 This file demonstrates the parser's field mapping and the envelope
-build. It is intentionally **not** valid live data — WDGWars's
+build. It is intentionally **not** valid live data. WDGWars's
 ingest path rejects `lat=0, lon=0` as `no_gps`, so a real upload
 attempt with this CSV would bounce harmlessly. Safe to commit and
 ship as a fixture.
@@ -31,7 +31,7 @@ section-aware parser.
 A real MeshCore "offline" ping-log JSON, same contribution, scrubbed: lat/lon
 zeroed and the contributor's own `device_name` / `device_public_key` replaced
 with placeholders (the parser ignores those fields anyway). Per-ping
-`public_key` values are retained — they're public mesh node IDs. `DISC` pings
+`public_key` values are retained, they're public mesh node IDs. `DISC` pings
 carry real `local_rssi` + `local_snr`; `RX` pings carry a `heard_repeats` SNR
 token. This is the richest of the three fixtures and the only one with a real
 RSSI.
