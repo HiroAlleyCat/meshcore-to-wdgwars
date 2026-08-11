@@ -35,3 +35,10 @@ with placeholders (the parser ignores those fields anyway). Per-ping
 carry real `local_rssi` + `local_snr`; `RX` pings carry a `heard_repeats` SNR
 token. This is the richest of the three fixtures and the only one with a real
 RSSI.
+
+Since v0.5.0 it is also the fixture that exercises `node_id` derivation: the
+per-ping `public_key` is where the 16-hex `node_id` comes from, so 15 of the 16
+unique nodes in this file clear wdgwars.pl's `node_id` gate and carry a verified
+`public_key` on the wire (they still bounce as `no_gps`, by design for a
+scrubbed fixture). The sixteenth is an `RX` token for a node this capture never
+logged a key for.

@@ -47,7 +47,7 @@ from pathlib import Path
 from typing import Any
 
 
-__version__ = "0.4.9"
+__version__ = "0.5.0"
 GITHUB_REPO = "Yggdrasil-AI-labs/meshcore-to-wdgwars"
 
 DEFAULT_ENDPOINT = "https://wdgwars.pl/api/upload/"
@@ -111,6 +111,89 @@ _NODE_TOKEN_RE = re.compile(
 # Do not guess at letters we have not actually seen.
 _NODE_TYPE_MARKERS = {"R": "REPEATER"}
 
+# MeshCore identifies a node on the air by the leading bytes of its public key,
+# and the short ID a capture prints (0CE8) is exactly that prefix: 2-6 hex,
+# well under the 8-16 lowercase hex wdgwars.pl's ingest requires, which is why
+# every node in every MeshMapper capture came back bad_node_id (issue #1).
+# Where a capture also logs the node's *full* public key, the first 8 bytes of
+# that key are the same identity carried further out - more digits of the same
+# number, nothing invented - and they clear the gate. Contributed by
+# nicolasrata (issue #1, 2026-08-08), who proved it with a proxy that rewrote
+# the ID before handing the capture to Heimdall; this does it in the parser so
+# nobody needs to stand up a proxy.
+#
+# 8 bytes is not our convention to pick: LOCOSP confirmed it (2026-08-10, DM)
+# as the canonical meshcore node_id, and it is a hard ceiling either way since
+# the server's node_id column is varchar(16). His own corpus is why it isn't
+# shorter - across 3,723 nodes a 1-byte prefix collides for every single node,
+# 2 bytes collapses 396 nodes into 179 groups (one prefix, fddd, covers six
+# distinct nodes), 3 bytes collapses 122 into 57, and 4 bytes is the first
+# clean one. A node_id collision is not cosmetic there: the importer updates
+# position on an id match, so two repeaters sharing an id overwrite each
+# other's coordinates. The short on-air ID is a local disambiguator, not an
+# identity.
+PUBKEY_NODE_ID_HEX = 16
+
+# A full MeshCore public key is a 32-byte Ed25519 key, i.e. exactly 64 hex.
+# wdgwars.pl rejects anything else as bad_public_key, so a key that survives
+# `derive_node_id` (which only needs enough hex to slice an id out of) is not
+# automatically fit to send.
+PUBKEY_FULL_HEX = 64
+
+_HEX_ONLY_RE = re.compile(r"^[0-9A-Fa-f]+$")
+
+
+def _clean_pubkey(public_key: Any) -> str:
+    """Normalise a public key to lowercase hex, or "" if it isn't hex."""
+    key = str(public_key or "").strip().lower()
+    return key if key and _HEX_ONLY_RE.match(key) else ""
+
+
+def derive_node_id(public_key: Any, display_id: str) -> str:
+    """Return the longest node_id justified by one heard node's own key.
+
+    Prefers the first `PUBKEY_NODE_ID_HEX` hex chars of `public_key`, but only
+    when the key is pure hex, long enough, and actually *starts with*
+    `display_id`. That prefix check is what ties the key to the node the
+    capture heard: a capture that ever pairs a key with a different node's
+    short ID falls back instead of uploading a confident wrong identity.
+    The fallback is `display_id` unchanged, which `predict_server_rejects`
+    then flags as too short for the server.
+    """
+    key = _clean_pubkey(public_key)
+    display_id = str(display_id or "").strip()
+    if len(key) < PUBKEY_NODE_ID_HEX:
+        return display_id
+    if display_id and not key.startswith(display_id.lower()):
+        return display_id
+    return key[:PUBKEY_NODE_ID_HEX]
+
+
+def _pubkey_for(pubkeys: set[str] | None, display_id: str) -> str | None:
+    """Resolve a short on-air ID against full public keys learned elsewhere in
+    the same capture.
+
+    Matches by prefix, since the short ID *is* the key's leading hex. Returns
+    None unless exactly one identity matches: two different keys sharing a
+    short ID means the capture can't tell those nodes apart, and guessing one
+    would attach a sighting to the wrong node - which on wdgwars.pl means one
+    repeater overwriting another's position, not just an untidy row. Keys
+    agreeing on their first `PUBKEY_NODE_ID_HEX` chars are one identity for
+    node_id purposes, so they resolve; the full key is only returned when it
+    is also unambiguous, since that is what gets asserted on the wire.
+    """
+    if not pubkeys or not display_id:
+        return None
+    prefix = display_id.strip().lower()
+    keys = {k for k in pubkeys if k.startswith(prefix)}
+    if len({k[:PUBKEY_NODE_ID_HEX] for k in keys}) != 1:
+        return None
+    if len(keys) == 1:
+        return keys.pop()
+    # One identity logged under two different full keys: enough to agree on the
+    # node_id, not enough to claim either key is that node's.
+    return sorted(keys)[0][:PUBKEY_NODE_ID_HEX]
+
 
 def _safe_float(value: Any) -> float:
     try:
@@ -133,7 +216,8 @@ def _format_first_seen(ts: str) -> str:
 
 def _build_record(node_id: str, node_type: str, name: str,
                   lat: float, lon: float, rssi: float | None,
-                  snr: float | None, timestamp: str) -> dict[str, Any]:
+                  snr: float | None, timestamp: str,
+                  public_key: Any = None) -> dict[str, Any]:
     """Assemble one meshcore_nodes record in the confirmed wdgwars.pl wire
     shape (`type` is the constant envelope marker, `node_type` carries the
     node's actual role, the date field is `first_seen`).
@@ -146,12 +230,22 @@ def _build_record(node_id: str, node_type: str, name: str,
     node_id that is 8-16 *lowercase* hex, and a known node_type, silently
     dropping anything that misses. MeshMapper's real node IDs are uppercase
     (e.g. "0CE8"), so this was one guaranteed rejection. The *length* gate
-    (8-16 hex) is a separate, unresolved problem: real MeshMapper IDs run
-    2-4 hex chars, so even lower-cased they may still miss on length alone
-, nothing to pad with here since we're never given more bytes than
-    MeshMapper exposes. Left for wdgwars.pl to confirm via
-    meshcore_reject_reasons."""
-    return {
+    (8-16 hex) is answered upstream of here by `derive_node_id`, which takes
+    the node_id from the node's own public key when the capture logs one; a
+    capture without keys still arrives here 2-6 hex and still misses, which
+    `predict_server_rejects` says out loud before the upload.
+
+    `public_key` is an optional wire field (confirmed live by LOCOSP,
+    2026-08-10): when present the server checks it is 64 hex and that node_id
+    really is its prefix, rejecting as bad_public_key / key_prefix_mismatch
+    otherwise, and its absence never rejects a record. It is sent whenever the
+    capture actually gave us that node's full key, and omitted entirely (not
+    sent as null) when it did not. The point is not proof - anyone can mint a
+    keypair and derive a matching id, so it catches mistakes, not a determined
+    faker - it is that holding the keys lets wdgwars.pl re-derive the canonical
+    id form later and merge id namespaces deterministically, without asking
+    every feeder to change."""
+    record = {
         "node_id": node_id.lower(),
         "node_type": node_type.upper(),
         "name": name or node_id,
@@ -161,6 +255,10 @@ def _build_record(node_id: str, node_type: str, name: str,
         "first_seen": _format_first_seen(timestamp),
         "type": MESHCORE_ENVELOPE_TYPE,
     }
+    key = _clean_pubkey(public_key)
+    if len(key) == PUBKEY_FULL_HEX and key.startswith(record["node_id"]):
+        record["public_key"] = key
+    return record
 
 
 def collapse_repeat_sightings(
@@ -226,8 +324,10 @@ def predict_server_rejects(nodes: list[dict[str, Any]]) -> list[str]:
         warnings.append(
             f"{short} of {len(nodes)} node_ids are outside the 8-16 hex range "
             f"wdgwars.pl requires, so the server will reject them as "
-            f"bad_node_id. MeshMapper exports only carry a 2-6 hex tail of "
-            f"the mesh public key; nothing here is fixable client-side."
+            f"bad_node_id. Those sightings name a node only by its short "
+            f"on-air ID (2-6 hex) with no public key anywhere in the capture "
+            f"to derive a longer one from. MeshCore's offline ping-log JSON "
+            f"logs the key on DISC pings; the MeshMapper CSV export does not."
         )
     no_gps = sum(1 for n in nodes if not n["lat"] and not n["lon"])
     if no_gps:
@@ -239,12 +339,20 @@ def predict_server_rejects(nodes: list[dict[str, Any]]) -> list[str]:
 
 
 def _node_token_to_record(token: str, timestamp: str,
-                          lat: float, lon: float) -> dict[str, Any] | None:
+                          lat: float, lon: float,
+                          pubkeys: set[str] | None = None,
+                          ) -> dict[str, Any] | None:
     """Parse one ID(snr) / ID(R)(snr) token into a meshcore record.
 
     rssi is None: TX/DISC/RX packed tokens carry SNR but no per-node RSSI
     (the section only logs the receiver's noise floor, not a signal level).
     Returns None for tokens that don't match the grammar.
+
+    A packed token never carries a public key of its own, so `pubkeys` lets a
+    caller pass the keys learned elsewhere in the same capture (offline-JSON
+    DISC pings do carry them) and have the token's short ID resolved to the
+    same longer node_id the DISC records use. Without it the short ID stands,
+    which is the previous behaviour and all a CSV export can support.
     """
     token = token.strip()
     if not token:
@@ -252,11 +360,13 @@ def _node_token_to_record(token: str, timestamp: str,
     m = _NODE_TOKEN_RE.match(token)
     if not m:
         return None
-    node_id, marker, snr_s = m.group(1), m.group(2), m.group(3)
+    display_id, marker, snr_s = m.group(1), m.group(2), m.group(3)
     node_type = (_NODE_TYPE_MARKERS.get(marker.upper(), DEFAULT_NODE_TYPE)
                  if marker else DEFAULT_NODE_TYPE)
-    return _build_record(node_id, node_type, "", lat, lon, None,
-                        float(snr_s), timestamp)
+    key = _pubkey_for(pubkeys, display_id)
+    node_id = derive_node_id(key, display_id)
+    return _build_record(node_id, node_type, display_id, lat, lon, None,
+                        float(snr_s), timestamp, key)
 
 # Explicit SSL context. urllib defaults to system trust + full cert verification
 # since Python 3.4.3 (PEP 476); being explicit just makes that obvious in review.
@@ -641,44 +751,76 @@ def _epoch_to_iso(ts: Any) -> str:
         return str(ts)
 
 
-def _ping_to_records(ping: dict[str, Any]) -> list[dict[str, Any]]:
+def _ping_to_records(ping: dict[str, Any],
+                     pubkeys: set[str] | None = None,
+                     ) -> list[dict[str, Any]]:
     """Map one offline-JSON ping to meshcore records.
 
     DISC pings name a single repeater with full telemetry (real local_rssi +
-    local_snr + node_type). RX pings carry a `heard_repeats` token list with
-    SNR only, same grammar as the CSV packed columns (so rssi stays None).
+    local_snr + node_type) *and* its full `public_key`, which is what the
+    node_id is derived from. RX pings carry a `heard_repeats` token list with
+    SNR only, same grammar as the CSV packed columns (so rssi stays None); they
+    name nodes by short ID alone, so they lean on `pubkeys` to reach the same
+    node_id as the DISC records for the same node.
+
+    Any other ping type carrying a `public_key` is treated as DISC-shaped.
+    issue #1 reports TRACE as a second key-bearing type, and gating on the
+    fields present rather than on a type label we have never seen a sample of
+    means TRACE parses without anyone guessing at its spelling.
     """
     ptype = str(ping.get("type") or "").upper()
     ts = _epoch_to_iso(ping.get("timestamp"))
     lat = _safe_float(ping.get("lat"))
     lon = _safe_float(ping.get("lon"))
-    if ptype == "DISC":
-        node_id = ping.get("repeater_id")
+    if ptype == "RX":
+        out: list[dict[str, Any]] = []
+        for tok in str(ping.get("heard_repeats") or "").split(","):
+            rec = _node_token_to_record(tok, ts, lat, lon, pubkeys)
+            if rec is not None:
+                out.append(rec)
+        return out
+    if ptype == "DISC" or ping.get("public_key"):
+        display_id = str(ping.get("repeater_id") or "")
+        node_id = derive_node_id(ping.get("public_key"), display_id)
         if not node_id:
             return []
         node_type = str(ping.get("node_type") or DEFAULT_NODE_TYPE)
         snr = ping.get("local_snr")
         rssi = ping.get("local_rssi")
         return [_build_record(
-            node_id, node_type, "", lat, lon,
+            node_id, node_type, display_id, lat, lon,
             _safe_float(rssi) if rssi is not None else None,
             _safe_float(snr) if snr is not None else None, ts,
+            ping.get("public_key"),
         )]
-    if ptype == "RX":
-        out: list[dict[str, Any]] = []
-        for tok in str(ping.get("heard_repeats") or "").split(","):
-            rec = _node_token_to_record(tok, ts, lat, lon)
-            if rec is not None:
-                out.append(rec)
-        return out
     return []
 
 
+def _collect_pubkeys(pings: list[Any]) -> set[str]:
+    """Gather every full public key in a capture, lower-cased.
+
+    Read in one pass before parsing so a node's key can reach the sightings
+    that named it by short ID alone, whatever order the pings arrive in.
+    """
+    keys: set[str] = set()
+    for ping in pings:
+        if not isinstance(ping, dict):
+            continue
+        key = str(ping.get("public_key") or "").strip().lower()
+        if len(key) >= PUBKEY_NODE_ID_HEX and _HEX_ONLY_RE.match(key):
+            keys.add(key)
+    return keys
+
+
 def parse_offline_json_obj(data: dict[str, Any]) -> list[dict[str, Any]]:
+    pings = data.get("pings", [])
+    if not isinstance(pings, list):
+        return []
+    pubkeys = _collect_pubkeys(pings)
     records: list[dict[str, Any]] = []
-    for ping in data.get("pings", []):
+    for ping in pings:
         if isinstance(ping, dict):
-            records.extend(_ping_to_records(ping))
+            records.extend(_ping_to_records(ping, pubkeys))
     return records
 
 
