@@ -190,12 +190,29 @@ Heimdall also does a quiet daily check against the GitHub releases API. If a new
 |---|---|---|
 | **MeshMapper flat "Copy CSV"** | Single header row `timestamp,repeater_id,snr,rssi,...` | MeshMapper app, RX log export |
 | **MeshMapper multi-section CSV** | `--- TX/RX/DISC Log ---` marker blocks, each with its own header | MeshMapper full log export |
-| **MeshCore offline ping-log JSON** | `.json` with a top-level `pings[]` array (`DISC` / `RX` pings) | meshcore-ha / MeshCore offline capture |
+| **MeshCore offline ping-log JSON** | `.json` with a top-level `pings[]` array (`DISC` / `RX` / any key-bearing ping) | meshcore-ha / MeshCore offline capture |
 | _Meshcore Companion serial dump_ | _Planned_ | T-Beam / Heltec / Wio Tracker via USB serial |
 | _Raw MQTT capture_ | _Planned_ | `mosquitto_sub` against a Meshcore broker |
 | _Cardputer ADV LoRa cap log_ | _Planned_ | M5Stack Cardputer Advanced with LoRa module |
 
 Format is auto-detected (by extension, then by content sniff). One `DISC`/`RX`/`TX` observation becomes one node record. **Note:** the CSV `TX`/`RX`/`DISC` sections log SNR and the receiver's noise floor but no per-node RSSI, so those records carry `rssi: null`; the offline-JSON `DISC` pings include real `local_rssi`. See [`examples/`](examples/) for a scrubbed sample of each format.
+
+### Node IDs
+
+MeshCore names a node on the air by the leading bytes of its public key, so the ID a capture prints (`0CE8`) is a 2-6 hex prefix of a 64-hex key. wdgwars.pl's ingest wants 8-16 lowercase hex, which is why early uploads came back `bad_node_id`.
+
+Since v0.5.0, when a capture logs a node's full `public_key`, Heimdall takes the `node_id` from the **first 16 hex chars (8 bytes) of that key** and keeps the short ID as the record's `name`. Same node, more digits of the same number. 8 bytes is the canonical form confirmed by wdgwars.pl (2026-08-10): shorter prefixes collide in the live corpus, and a node_id collision there means two repeaters overwriting each other's position.
+
+The full key rides along as an optional `public_key` field, which the server verifies (64 hex, `node_id` must be its prefix) but never requires. Heimdall only sends a key it can tie to that node, and omits the field entirely rather than sending null.
+
+Two guard rails:
+
+- The key is only used when it actually starts with the short ID the capture heard, so a mispaired key never renames a node into someone else's identity.
+- Sightings that name a node by short ID alone (offline-JSON `RX` tokens) resolve against the keys found elsewhere in the *same* capture, and only when exactly one node matches that prefix.
+
+A MeshMapper CSV export carries no keys at all, so its nodes keep their short IDs and Heimdall warns that the server will reject them. This approach was contributed by [@nicolasrata](https://github.com/nicolasrata) in [issue #1](https://github.com/Yggdrasil-AI-labs/meshcore-to-wdgwars/issues/1).
+
+---
 
 Italicised rows are not yet implemented. They are on the roadmap once sample data lands. **Have a real capture you can share? See the pinned ["Wanted: real-world Meshcore capture samples"](https://github.com/Yggdrasil-AI-labs/meshcore-to-wdgwars/issues/1) issue for what we're looking for and how to scrub before sending.**
 
@@ -278,7 +295,8 @@ Records batch in chunks of **1000** per request.
 | Want to inspect the installed daily job | Per-OS check: | `systemctl --user cat heimdall.service` (systemd) / `crontab -l` (cron) / `schtasks /Query /TN Heimdall /V` (Windows). |
 | `schtasks: Value for '/TR' option cannot be more than 261 character(s)` | Your install path + CSV path exceed the schtasks /TR limit. | Move the install to a shorter path (e.g. `C:\heimdall\` instead of nested user paths). |
 | Dry-run says HEALTHY but real upload returns `401` | Saved key was rotated or revoked. | Re-run `./run.sh --setup` to save the current key, then `./run.sh --whoami` to verify. |
-| `N rejected: {'bad_node_id': N}` | wdgwars.pl's anti-abuse gate requires a `node_id` of 8-16 lowercase hex. MeshMapper exports only carry a 2-6 hex tail of each node's mesh public key, so every node in a MeshMapper capture currently misses the floor. Nothing in your capture is wrong, and there is nothing valid Heimdall could pad the ID with. | Server-side; reported to LOCOSP with a request to relax the floor for meshcore, and to the MeshMapper maintainer to log more hex digits. v0.4.7+ warns about this before uploading. |
+| `N rejected: {'bad_node_id': N}` | wdgwars.pl wants a `node_id` of 8-16 lowercase hex, and the short ID a capture prints is only the leading 1-3 bytes of the node's public key. | Fixed in v0.5.0 for captures that log the full key, which is where the `node_id` now comes from (see [Node IDs](#node-ids)). A MeshMapper CSV export carries no keys, so those nodes still miss the floor; prefer MeshCore's offline ping-log JSON export where you have the choice. Heimdall warns before uploading either way. |
+| `N rejected: {'bad_public_key': N}` or `{'key_prefix_mismatch': N}` | The optional `public_key` field must be 64 hex with `node_id` as its prefix. | Heimdall never sends a key that fails either check, so this points at a modified parser or a hand-built payload. |
 | `N rejected: {'no_gps': N}` | Records with lat/lon `0,0` are dropped by the server (it needs a map position). MeshMapper writes `0.0,0.0` when it has no GPS fix. | Capture with GPS enabled / a fix acquired. v0.4.7+ warns about this before uploading. |
 | Upload says `accepted ... 0 new` and rejected counts vanish on a re-run | The server's counters don't itemise every dropped record; observed live on a repeat submission of an already-rejected payload. Heimdall keeps no state between runs. | v0.4.7+ prints how many submitted nodes got no verdict so the silence is visible. |
 
@@ -313,7 +331,7 @@ envelope  = {"data": data_b64, "nonce": nonce, "sig": sig}
 # POST → https://wdgwars.pl/api/upload/ with X-API-Key: <key>
 ```
 
-The target per-record schema is `node_id, node_type, name, lat, lon, rssi, first_seen, type`. `type` is a constant (`"MESHCORE"`) marking the record as part of this envelope family; the node's own role (repeater/client/...) goes in `node_type`. `name` falls back to `node_id` when the source format has no real name (MeshMapper never does). Field aliases for MeshMapper inputs are in `_normalise_meshmapper_row`.
+The target per-record schema is `node_id, node_type, name, lat, lon, rssi, first_seen, type`. `type` is a constant (`"MESHCORE"`) marking the record as part of this envelope family; the node's own role (repeater/client/...) goes in `node_type`. `name` carries the short on-air ID (`0CE8`) once `node_id` is derived from the node's public key, and otherwise falls back to `node_id` itself, since no MeshMapper format ever gives a node a real name. An optional `public_key` field is added when the capture supplied that node's full key. Field aliases for MeshMapper inputs are in `_normalise_meshmapper_row`; `node_id` derivation is in `derive_node_id`.
 
 ---
 

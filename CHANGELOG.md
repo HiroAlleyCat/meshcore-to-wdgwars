@@ -4,6 +4,84 @@ All notable changes to Heimdall are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] - 2026-08-10 - node_id from the node's public key
+
+The `bad_node_id` wall comes down for captures that log keys. It was never a
+server-side problem: LOCOSP's gate is `[a-f0-9]{8,16}`, so the 16-hex form has
+always been accepted, and 13 nodes uploaded through a contributor's own proxy
+were already in the database before this release. Every previous changelog entry
+treating the length floor as something wdgwars.pl had to relax was reading a
+client-side gap as a server-side gate.
+
+### Added
+
+- **`node_id` is derived from the heard node's own public key** (first 16 hex
+  chars / 8 bytes) wherever a capture logs one, with the short on-air ID kept
+  as the record `name`. MeshCore identifies a node by the leading bytes of its
+  key, so the 2-6 hex ID a capture prints is a truncation of the same number,
+  not a different identifier: taking more digits of it clears the gate without
+  inventing anything. On the contributed `examples/offline-pings.json`, 15 of 16
+  unique nodes now clear the node_id gate where previously none did.
+
+  Found by **@nicolasrata** (issue #1, 2026-08-08), who proved it with a proxy
+  that rewrote the ID between MeshMapper and Heimdall. Doing it in the parser
+  means nobody has to run a proxy. **@formtapez** established the constraint
+  that made it necessary: a repeater only puts its full ID on the air in an
+  advert frame, so waiting for capture apps to log longer IDs was never going to
+  work.
+
+  8 bytes is not an arbitrary cut. LOCOSP confirmed it (2026-08-10) as the
+  canonical meshcore node_id: the server's column is `varchar(16)`, and his own
+  corpus is why it is not shorter - across 3,723 nodes a 1-byte prefix collides
+  for every node, 2 bytes collapses 396 into 179 groups (one prefix, `fddd`,
+  covers six distinct nodes), 3 bytes collapses 122 into 57, 4 bytes is the
+  first clean one. Collisions are not cosmetic there: the importer updates
+  position on an id match, so two repeaters sharing an id overwrite each other's
+  coordinates.
+
+  Two guard rails, because a wrong node identity is worse than a rejected one.
+  The key is used only when it actually starts with the short ID the capture
+  heard, and `RX` token sightings (short ID only) resolve against keys found
+  elsewhere in the same capture only when exactly one node matches that prefix.
+  Anything ambiguous keeps its short ID and is reported as a predicted
+  rejection.
+
+- **`public_key` is sent on records where the capture gave us the node's full
+  key.** The field is optional server-side (confirmed live by LOCOSP): when
+  present it is checked at 64 hex with `node_id` verified as its prefix,
+  rejecting as `bad_public_key` / `key_prefix_mismatch` otherwise, and its
+  absence never rejects. Heimdall omits it entirely rather than sending null,
+  and never sends a key it cannot tie to that node - a partial key still derives
+  an id but is not sent, and where two full keys share one 8-byte prefix the id
+  ships without a key rather than guessing which is that node's.
+
+  The point is not proof of existence: anyone can mint a keypair and derive a
+  matching id, so the prefix check catches mistakes, not a determined faker.
+  Holding full keys is what lets wdgwars.pl re-derive the canonical id form
+  later and merge id namespaces deterministically, without asking every feeder
+  to change again.
+
+- **Key-bearing pings of any type parse as sightings.** Previously only `DISC`
+  and `RX` did. `TRACE` is a second key-bearing type (reported in issue #1, and
+  confirmed independently in DedDrop's MeshMapper ingest); gating on the
+  presence of `public_key` rather than on a type label means it parses without
+  guessing at its spelling.
+
+### Changed
+
+- `predict_server_rejects`'s `bad_node_id` warning no longer says the problem is
+  unfixable client-side. It names the actual cause of a surviving short ID (no
+  key anywhere in the capture for that node) and points at the offline-JSON
+  export, which logs keys where the MeshMapper CSV export does not.
+
+### Notes
+
+- The web flavour picks this up for free: it runs `heimdall.py`'s parser under
+  Pyodide rather than reimplementing it.
+- Nodes already uploaded as short IDs are not orphaned by this. The short form
+  is a prefix of the long one, so the merge is unambiguous, and LOCOSP is
+  handling it server-side; no feeder-side migration is expected.
+
 ## [0.4.9] - 2026-07-29 - Trim the v0.4.7/v0.4.8 helpers
 
 ### Changed

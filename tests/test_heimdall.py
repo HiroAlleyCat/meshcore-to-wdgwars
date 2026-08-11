@@ -176,6 +176,162 @@ class OfflineJsonTests(unittest.TestCase):
         self.assertEqual(len(rows), 2)
 
 
+# A capture whose DISC pings carry the node's full public key, plus an RX ping
+# that names one of the same nodes by short ID only. Keys are real-shaped
+# (64 hex, short ID as the leading digits) but not real nodes.
+KEYED_JSON = json.dumps({
+    "offline": True,
+    "ping_count": 3,
+    "device_name": "EXAMPLE_NODE",
+    "device_public_key": "DEADBEEF" * 8,
+    "pings": [
+        {"type": "DISC", "lat": 1.5, "lon": 2.5, "repeater_id": "0CE8",
+         "node_type": "REPEATER", "local_snr": 2.25, "local_rssi": -98,
+         "public_key": "0CE8FE4FB8E5EA2C0A7B1A974DFBD604"
+                       "BA8A63F68DA6A26F146C4BD1CEA1FFE6",
+         "timestamp": 1782450531},
+        {"type": "TRACE", "lat": 1.5, "lon": 2.5, "repeater_id": "EF8B",
+         "public_key": "EF8B822C5059AA5C39713F2F6BA9A9C1"
+                       "2E9F6701884C0D61880B2C7CE88449B7",
+         "timestamp": 1782450676},
+        {"type": "RX", "lat": 1.5, "lon": 2.5,
+         "heard_repeats": "0CE8(-8.00),FB03(-9.00)",
+         "timestamp": 1782450685},
+    ],
+})
+
+
+class DerivedNodeIdTests(unittest.TestCase):
+    """nicolasrata's fix (issue #1): take the node_id from the node's own
+    public key so it clears wdgwars.pl's 8-16 hex gate."""
+
+    KEY = "0CE8FE4FB8E5EA2C0A7B1A974DFBD604BA8A63F68DA6A26F146C4BD1CEA1FFE6"
+
+    def test_derives_sixteen_hex_from_key(self):
+        self.assertEqual(heimdall.derive_node_id(self.KEY, "0CE8"),
+                         "0ce8fe4fb8e5ea2c")
+
+    def test_derived_id_clears_the_server_gate(self):
+        node_id = heimdall.derive_node_id(self.KEY, "0CE8").lower()
+        self.assertRegex(node_id, heimdall._SERVER_NODE_ID_GATE)
+
+    def test_key_not_matching_the_short_id_is_not_used(self):
+        # A key paired with someone else's short ID would upload a confident
+        # wrong identity, so the short ID stands and the server rejects it.
+        self.assertEqual(heimdall.derive_node_id(self.KEY, "FB03"), "FB03")
+
+    def test_short_or_nonhex_key_falls_back(self):
+        self.assertEqual(heimdall.derive_node_id("0CE8FE", "0CE8"), "0CE8")
+        self.assertEqual(heimdall.derive_node_id("not-hex-at-all!", "0CE8"),
+                         "0CE8")
+        self.assertEqual(heimdall.derive_node_id(None, "0CE8"), "0CE8")
+
+    def test_key_with_no_short_id_is_still_used(self):
+        self.assertEqual(heimdall.derive_node_id(self.KEY, ""),
+                         "0ce8fe4fb8e5ea2c")
+
+
+class KeyedCaptureTests(unittest.TestCase):
+    def setUp(self):
+        self.rows = heimdall.parse_offline_json(_write_tmp(KEYED_JSON, ".json"))
+
+    def test_disc_uses_the_key_and_keeps_the_short_id_as_name(self):
+        disc = self.rows[0]
+        self.assertEqual(disc["node_id"], "0ce8fe4fb8e5ea2c")
+        self.assertEqual(disc["name"], "0CE8")
+        self.assertEqual(disc["rssi"], -98.0)
+
+    def test_trace_ping_parses_as_a_keyed_sighting(self):
+        trace = self.rows[1]
+        self.assertEqual(trace["node_id"], "ef8b822c5059aa5c")
+        self.assertEqual(trace["node_type"], "REPEATER")
+
+    def test_rx_token_resolves_against_a_key_from_the_same_capture(self):
+        # Same physical node as the DISC ping, so it must land on the same id
+        # (and collapse into one node downstream) rather than a short 0ce8.
+        self.assertEqual(self.rows[2]["node_id"], "0ce8fe4fb8e5ea2c")
+
+    def test_rx_token_with_no_known_key_keeps_its_short_id(self):
+        self.assertEqual(self.rows[3]["node_id"], "fb03")
+
+    def test_repeat_sighting_collapses_onto_the_derived_id(self):
+        uniq, collapsed = heimdall.collapse_repeat_sightings(self.rows)
+        self.assertEqual(collapsed, 1)
+        self.assertEqual([n["node_id"] for n in uniq],
+                         ["0ce8fe4fb8e5ea2c", "ef8b822c5059aa5c", "fb03"])
+
+    def test_only_the_unkeyed_node_is_predicted_rejected(self):
+        warnings = heimdall.predict_server_rejects(self.rows)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("1 of 4 node_ids", warnings[0])
+
+    def test_capturing_devices_own_key_is_not_a_node(self):
+        self.assertNotIn("deadbeefdeadbeef",
+                         [r["node_id"] for r in self.rows])
+
+
+class PublicKeyWireFieldTests(unittest.TestCase):
+    """`public_key` is optional on wdgwars.pl's meshcore record (confirmed live
+    2026-08-10): 64 hex or bad_public_key, node_id must be its prefix or
+    key_prefix_mismatch, absent is always fine."""
+
+    def setUp(self):
+        self.rows = heimdall.parse_offline_json(_write_tmp(KEYED_JSON, ".json"))
+
+    def test_sent_when_the_capture_gave_us_the_key(self):
+        self.assertEqual(
+            self.rows[0]["public_key"],
+            "0ce8fe4fb8e5ea2c0a7b1a974dfbd604"
+            "ba8a63f68da6a26f146c4bd1cea1ffe6")
+
+    def test_every_sent_key_is_64_hex_with_node_id_as_its_prefix(self):
+        for r in self.rows:
+            if "public_key" in r:
+                self.assertEqual(len(r["public_key"]), 64)
+                self.assertRegex(r["public_key"], r"^[0-9a-f]{64}$")
+                self.assertTrue(r["public_key"].startswith(r["node_id"]))
+
+    def test_omitted_rather_than_null_when_we_have_no_key(self):
+        self.assertNotIn("public_key", self.rows[3])  # short-id RX token
+
+    def test_rx_token_carries_the_key_it_resolved_against(self):
+        self.assertEqual(self.rows[2]["public_key"], self.rows[0]["public_key"])
+
+    def test_csv_records_never_claim_a_key(self):
+        rows = heimdall.parse_meshmapper_csv(_write_tmp(SECTIONED_CSV, ".csv"))
+        self.assertTrue(all("public_key" not in r for r in rows))
+
+    def test_partial_key_derives_an_id_but_is_never_sent_as_a_key(self):
+        # Long enough to slice a node_id out of, too short to be a real
+        # Ed25519 key, so sending it would come back bad_public_key.
+        rec = heimdall._build_record("0ce8fe4fb8e5ea2c", "REPEATER", "0CE8",
+                                     1.0, 2.0, None, None, "t",
+                                     "0CE8FE4FB8E5EA2C0A7B")
+        self.assertEqual(rec["node_id"], "0ce8fe4fb8e5ea2c")
+        self.assertNotIn("public_key", rec)
+
+    def test_key_that_does_not_match_the_node_id_is_dropped(self):
+        rec = heimdall._build_record("fb03", "REPEATER", "FB03", 1.0, 2.0,
+                                     None, None, "t", "0CE8FE" + "0" * 58)
+        self.assertNotIn("public_key", rec)
+
+
+class AmbiguousKeyTests(unittest.TestCase):
+    def test_two_nodes_sharing_a_short_id_leave_tokens_alone(self):
+        keys = {"0ce8fe4fb8e5ea2c" + "0" * 48, "0ce8aa11b22c33d4" + "0" * 48}
+        rec = heimdall._node_token_to_record("0CE8(-8.00)", "t", 1.0, 2.0, keys)
+        self.assertEqual(rec["node_id"], "0ce8")
+
+    def test_one_identity_logged_twice_still_resolves(self):
+        # Same first 8 bytes, differing tails: one node_id, not an ambiguity.
+        keys = {"0ce8fe4fb8e5ea2c" + "1" * 48, "0ce8fe4fb8e5ea2c" + "2" * 48}
+        rec = heimdall._node_token_to_record("0CE8(-8.00)", "t", 1.0, 2.0, keys)
+        self.assertEqual(rec["node_id"], "0ce8fe4fb8e5ea2c")
+        # ...but we can't say which of the two keys is that node's, so neither
+        # gets asserted on the wire.
+        self.assertNotIn("public_key", rec)
+
+
 class NodeTokenTests(unittest.TestCase):
     def test_disc_token_with_marker(self):
         rec = heimdall._node_token_to_record("910E(R)(-6.00)", "t", 0.0, 0.0)
