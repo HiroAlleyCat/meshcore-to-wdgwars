@@ -7,24 +7,34 @@
 - Normalises each row to the WDGWars meshcore schema.
 - Optionally POSTs the records to `https://wdgwars.pl/api/upload/` as
   an HMAC-signed JSON envelope.
-- Optionally checks GitHub's releases API for a newer version (see
-  below) and self-updates on request.
+- On request only, checks GitHub's releases API for a newer version
+  (`--check-version`) and self-updates (`--update`). See below.
 
 ## Outbound network footprint
+
+**Nothing here contacts anybody unless you invoked a command that says
+so.** There is no background check, no timer, and no call on an ordinary
+run.
 
 - **Uploads** go only to the configured WDGWars endpoint
   (`https://wdgwars.pl/api/upload/` by default, override with
   `--api-url`), and only when you invoke an upload without `--dry-run`.
-- **Version check**: at most once per 24 h Heimdall queries GitHub's
-  releases API to nudge you about a newer release. Cached in the config
-  dir, 3 s timeout, never blocks an upload. Opt out with
-  `--no-version-check` or `--quiet`.
+- **Version check** (`--check-version`): queries GitHub's releases API
+  and prints whether a newer release exists. 3 s timeout. It is worth
+  knowing what that request shows GitHub, since GitHub is a third party
+  and not us: your source IP, the exact version you are running (it is
+  in the User-Agent), which tool you are running, and the time you ran
+  it. That is why it is a command you type rather than something this
+  tool does on its own. Earlier releases checked once per 24 h on almost
+  every run, with `--no-version-check` and `--quiet` as the opt-out.
+  That was the wrong default and it is gone. The flag is still accepted
+  and ignored so existing cron lines and scheduled tasks keep working.
 - **Self-update** (`--update`, or the `update.sh`/`update.bat`
   wrappers): fetches `heimdall.py`, `requirements.txt`, and the wrapper
   scripts from this repo's `main` branch on raw.githubusercontent.com
   over HTTPS. The downloaded script is AST-parsed before it atomically
-  replaces the old one. This is an explicit, operator-invoked action,
-  nothing updates itself in the background.
+  replaces the old one. This is an explicit, operator-invoked action.
+  Nothing updates itself in the background.
 - **No telemetry or analytics.** Nothing else leaves the machine.
 - ❌ **No `eval`, `exec`, `os.system`, or `shell=True` subprocess calls.**
   Subprocesses (git/pip/systemctl/crontab/schtasks in `--update` and the

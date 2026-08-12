@@ -202,5 +202,54 @@ class MainCapturePathTests(unittest.TestCase):
                 0)
 
 
+class NoUnattendedEgressTests(unittest.TestCase):
+    """Heimdall must not talk to any third party unless the operator asked.
+
+    The GitHub release check used to run on every invocation (opt-out via
+    --quiet / --no-version-check), which disclosed the user's IP, their
+    version, and a rough usage cadence to GitHub without consent. It is now
+    reachable only through --check-version. These tests lock that in: a
+    normal run makes no check, and the explicit flag still does.
+    """
+
+    def _run(self, argv):
+        import io
+        from contextlib import redirect_stderr, redirect_stdout
+        buf = io.StringIO()
+        with redirect_stderr(buf), redirect_stdout(buf):
+            rc = heimdall.main(argv)
+        return rc, buf.getvalue()
+
+    def _capture(self, d):
+        f = Path(d) / "cap.json"
+        f.write_text('{"pings":[{"type":"DISC","repeater_id":"n1",'
+                     '"timestamp":0,"lat":1.0,"lon":2.0}]}')
+        return f
+
+    def test_normal_run_never_checks_for_updates(self):
+        # No -q, no --no-version-check: the old code path would fire here.
+        with tempfile.TemporaryDirectory() as d:
+            f = self._capture(d)
+            with mock.patch.object(heimdall, "_check_for_update") as chk:
+                rc, _ = self._run(["--preview", str(f)])
+            self.assertEqual(rc, 0)
+            chk.assert_not_called()
+
+    def test_check_version_flag_still_checks(self):
+        with mock.patch.object(heimdall, "_check_for_update",
+                               return_value=None) as chk:
+            rc, _ = self._run(["--check-version"])
+        self.assertEqual(rc, 0)
+        chk.assert_called_once()
+
+    def test_legacy_no_version_check_flag_is_still_accepted(self):
+        # Baked into existing cron lines / systemd units / schtasks actions;
+        # erroring on it would break a working scheduled upload.
+        with tempfile.TemporaryDirectory() as d:
+            f = self._capture(d)
+            rc, _ = self._run(["--no-version-check", "--preview", str(f)])
+        self.assertEqual(rc, 0)
+
+
 if __name__ == "__main__":
     unittest.main()

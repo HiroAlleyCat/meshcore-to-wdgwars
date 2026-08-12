@@ -180,7 +180,7 @@ Helper scripts for double-click users:
 | `run.sh path/to/your.csv` / `run.bat path\to\your.csv` | Upload a single CSV |
 | `update.sh` / `update.bat` | Self-update to the latest Heimdall |
 
-Heimdall also does a quiet daily check against the GitHub releases API. If a newer version is published, the next run prints a one-line note suggesting `--update`. The check is cached for 24h in your config dir, runs with a 3-second timeout, and can be disabled with `--no-version-check` (or globally suppressed with `--quiet`).
+Heimdall never phones home on its own. If you want to know whether a newer release exists, run `--check-version` and it asks GitHub once and tells you. Nothing else on an ordinary run contacts anybody except the WDGWars upload endpoint, and only when you invoke an upload.
 
 ---
 
@@ -240,7 +240,7 @@ Italicised rows are not yet implemented. They are on the roadmap once sample dat
 | `--schedule-time HH:MM` | 24-hour daily run time for `--schedule`. | `03:00` |
 | `--schedule-dry-run` | Install the schedule with `--dry-run` baked in. | off |
 | `--update` | Self-update via `git pull` (clone) or raw-GitHub fetch (ZIP install). | off |
-| `--no-version-check` | Skip the daily GitHub release check for this run. | off |
+| `--check-version` | Ask GitHub whether a newer release exists, then exit. The only thing here that contacts GitHub by itself. | off |
 | `-q`, `--quiet` | Suppress informational banners. Errors still print. | off |
 | `--version` | Print version and exit. | (none) |
 | `-h`, `--help` | Print help and exit. | (none) |
@@ -340,8 +340,8 @@ The target per-record schema is `node_id, node_type, name, lat, lon, rssi, first
 - Capture files **never leave your machine** until you explicitly run an upload command without `--dry-run`. Parsing, normalising, and envelope-building all happen locally.
 - The API key is read from `--key` (or the deprecated `--api-key` alias), then `$WDGWARS_API_KEY`, then the saved key file. When `--setup` (or `--save-key`) writes the file, it's `chmod 0600` on Unix and lives under the per-user `%APPDATA%` on Windows.
 - The bundled `examples/sample.csv` is a **scrubbed** export with `lat=0, lon=0` for every row, so it cannot accidentally produce a real upload (the upstream ingest rejects `0,0` GPS).
-- The daily version check hits `https://api.github.com/repos/Yggdrasil-AI-labs/meshcore-to-wdgwars/releases/latest` with a `heimdall/<version>` User-Agent, caches the answer for 24h, and sends nothing about you or your data. Disable per-run with `--no-version-check`, or silence globally with `--quiet`.
-- No telemetry, no analytics. The only outbound traffic is to the WDGWars upload endpoint (when you explicitly invoke an upload) and the GitHub release check (cached daily, opt-out via `--no-version-check`).
+- `--check-version` hits `https://api.github.com/repos/Yggdrasil-AI-labs/meshcore-to-wdgwars/releases/latest` with a `heimdall/<version>` User-Agent. It sends nothing about you or your captures, but GitHub is a third party and the request itself shows them four things: your source IP, the version you're on, which tool you're running, and when you ran it. That's why it's a command you type. Earlier releases ran this once a day on almost every invocation with `--no-version-check` as the opt-out. That default is gone; the flag is still accepted and ignored so existing scheduled runs don't break.
+- No telemetry, no analytics, nothing on a timer. On an ordinary run the only outbound traffic is to the WDGWars upload endpoint, and only when you explicitly invoke an upload.
 
 ---
 

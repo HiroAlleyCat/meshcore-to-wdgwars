@@ -47,7 +47,7 @@ from pathlib import Path
 from typing import Any
 
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 GITHUB_REPO = "Yggdrasil-AI-labs/meshcore-to-wdgwars"
 
 DEFAULT_ENDPOINT = "https://wdgwars.pl/api/upload/"
@@ -927,13 +927,17 @@ def _is_newer(latest: str, current: str) -> bool:
     return lt is not None and ct is not None and lt > ct
 
 
-def _check_for_update() -> str | None:
+def _check_for_update(force: bool = False) -> str | None:
     """Quick non-blocking version check against the GitHub releases API.
-    Cached for 24h in the user's config dir so we do not hammer the API.
+
+    Only ever reached from --check-version or --update: nothing calls this on
+    an ordinary run. Cached for 24h in the user's config dir so repeated
+    --update attempts do not hammer the API; `force` skips the cache so an
+    operator who explicitly asked gets a fresh answer rather than a stale one.
     Returns the latest tag if newer than __version__, else None."""
     cache = _config_dir() / "version-check.json"
     try:
-        if cache.exists():
+        if cache.exists() and not force:
             blob = json.loads(cache.read_text())
             if time.time() - blob.get("checked_at", 0) < 86400:
                 latest = blob.get("latest")
@@ -1529,8 +1533,14 @@ def main(argv: list[str] | None = None) -> int:
                    help="print first 6 normalised rows as JSON and exit")
     p.add_argument("-q", "--quiet", action="store_true",
                    help="suppress informational banners (errors still print)")
+    p.add_argument("--check-version", action="store_true",
+                   help="ask GitHub whether a newer release exists, then exit "
+                        "(the only thing here that contacts GitHub on its own)")
     p.add_argument("--no-version-check", action="store_true",
-                   help="skip the daily GitHub release check entirely")
+                   help=argparse.SUPPRESS)  # accepted for compatibility; no
+    # automatic check happens any more, so this is a no-op. Existing cron
+    # lines, systemd units and schtasks actions carry it, and erroring on an
+    # unknown argument would break a working scheduled upload.
     # ── Scheduler flags ──
     p.add_argument("--schedule", action="store_true",
                    help="install a daily scheduled upload (systemd / cron / "
@@ -1589,13 +1599,20 @@ def main(argv: list[str] | None = None) -> int:
     if args.schedule:
         return cmd_schedule_headless(args)
 
-    # Soft nudge: if a newer release is out, mention it (non-blocking, daily-cached).
-    if not args.quiet and not args.no_version_check:
-        newer = _check_for_update()
+    # Version check is explicit-only. It used to run on every invocation with
+    # --quiet / --no-version-check as the opt-out, which disclosed the user's
+    # IP, their exact version and a rough daily usage cadence to GitHub
+    # without ever asking. Nothing here talks to a third party unless the
+    # operator typed a command that says so.
+    if args.check_version:
+        newer = _check_for_update(force=True)
         if newer:
-            print(f"[heimdall] note: v{newer} is available "
+            print(f"[heimdall] v{newer} is available "
                   f"(you're on v{__version__}). Run `--update` to upgrade.",
                   file=sys.stderr)
+        else:
+            print(f"[heimdall] v{__version__} is current.", file=sys.stderr)
+        return 0
 
     # Key management modes, handled before requiring an input file.
     if args.setup:
