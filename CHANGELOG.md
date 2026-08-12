@@ -4,6 +4,45 @@ All notable changes to Heimdall are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.7.0] - 2026-08-12 - Meshcore/Meshtastic told apart by `network`, hop count carried through
+
+LOCOSP shipped a new mesh-slot contract today, in direct response to a
+question raised from this project: the slot now takes both Meshcore and
+Meshtastic, told apart by an explicit `network` field rather than by
+guessing from role-name casing.
+
+### Added
+
+- Every record now carries `network: "meshcore"`. Heimdall's parsers only
+  ever read Meshcore capture formats, so this states that positively
+  instead of leaving WDGWars to infer it from `node_type`'s casing.
+- `path_hops` and `path_length` are carried through from the MeshMapper flat
+  "Copy CSV" export when the row has them, omitted entirely (not sent as
+  null) when it does not, same pattern as the existing optional
+  `public_key` field. WDGWars never rejects a sighting for being hopped;
+  it just will not let a hopped sighting move a node's position ahead of
+  one that arrived at least as directly.
+
+### Fixed
+
+- An unrecognised MeshMapper node-type marker (anything other than the
+  confirmed `R` -> `REPEATER`) was silently coerced to the default
+  `REPEATER` instead of being carried through as captured. It now rides
+  through verbatim, since WDGWars keeps `node_type` verbatim and maps it
+  onto its own internal set rather than asking feeders to translate it.
+- `_build_record` no longer force-upper-cases `node_type`. That was itself
+  a normalisation of a captured value; the new contract asks for the role
+  exactly as captured.
+
+### Compatibility
+
+- Key handling, the HMAC envelope, the scheduler, and the version-check
+  behaviour are all untouched.
+- No leading `!` stripping was added: none of Heimdall's parsed capture
+  formats (MeshMapper CSV, MeshCore offline ping-log JSON) have ever been
+  observed to emit an id with a leading `!`, so there is nothing here to
+  strip.
+
 ## [0.6.0] - 2026-08-12 - No unattended calls: the version check is now opt-in
 
 ### Changed

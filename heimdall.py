@@ -19,7 +19,14 @@ Target schema (`type` is the constant envelope marker; the node's own role
 goes in the separate `node_type` field, earlier releases swapped these two
 and had every upload accepted with meshcore_imported: 0):
 
-    node_id, node_type, name, lat, lon, rssi, first_seen, type
+    node_id, node_type, name, lat, lon, rssi, first_seen, type, network
+
+`network` is a constant "meshcore" (LOCOSP's 2026-08-12 mesh-slot contract,
+which now takes both MeshCore and Meshtastic and tells them apart by this
+field rather than by role-name casing). `public_key`, `path_hops`, and
+`path_length` are optional, sent only when the capture actually gave that
+value; a hopped sighting still counts, it just cannot move a node's position
+ahead of one that arrived at least as directly.
 
 License: MIT
 """
@@ -47,7 +54,7 @@ from pathlib import Path
 from typing import Any
 
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"
 GITHUB_REPO = "Yggdrasil-AI-labs/meshcore-to-wdgwars"
 
 DEFAULT_ENDPOINT = "https://wdgwars.pl/api/upload/"
@@ -106,9 +113,13 @@ _NODE_TOKEN_RE = re.compile(
 )
 
 # Node-type markers seen in real exports. Only "R" (repeater) is confirmed
-# from the 2026-06-27 baseline; other markers (companion/client, room server)
-# are normalised to the default until a real sample pins their letters down.
-# Do not guess at letters we have not actually seen.
+# from the 2026-06-27 baseline. An unrecognised marker is still something the
+# capture actually recorded, so it rides through as-is (LOCOSP's 2026-08-12
+# contract: send the role exactly as captured, the server keeps it verbatim
+# and maps it internally) rather than being coerced to the default, which
+# would misrepresent it as a repeater it may not be. Do not guess at a full
+# name for a letter we have not actually seen; only the confirmed R->REPEATER
+# expansion is a translation, everything else passes through untouched.
 _NODE_TYPE_MARKERS = {"R": "REPEATER"}
 
 # MeshCore identifies a node on the air by the leading bytes of its public key,
@@ -217,7 +228,9 @@ def _format_first_seen(ts: str) -> str:
 def _build_record(node_id: str, node_type: str, name: str,
                   lat: float, lon: float, rssi: float | None,
                   snr: float | None, timestamp: str,
-                  public_key: Any = None) -> dict[str, Any]:
+                  public_key: Any = None,
+                  path_hops: Any = None,
+                  path_length: Any = None) -> dict[str, Any]:
     """Assemble one meshcore_nodes record in the confirmed wdgwars.pl wire
     shape (`type` is the constant envelope marker, `node_type` carries the
     node's actual role, the date field is `first_seen`).
@@ -244,20 +257,45 @@ def _build_record(node_id: str, node_type: str, name: str,
     keypair and derive a matching id, so it catches mistakes, not a determined
     faker - it is that holding the keys lets wdgwars.pl re-derive the canonical
     id form later and merge id namespaces deterministically, without asking
-    every feeder to change."""
+    every feeder to change.
+
+    `network` is a constant "meshcore": LOCOSP's 2026-08-12 mesh-slot
+    contract lets a feeder state which network a record belongs to instead
+    of the server inferring it from role-name casing, and Heimdall only ever
+    parses MeshCore captures, so it says so on every record.
+
+    `node_type` is sent exactly as given, not upper-cased. Earlier releases
+    forced upper-case here, which is itself a normalisation of a captured
+    value; the same 2026-08-12 contract asks feeders to send the role
+    exactly as captured and let the server map it onto its own internal set.
+
+    `path_hops` / `path_length` are optional wire fields, same omit-rather-
+    than-null pattern as `public_key`: included when the capture actually
+    gave a hop count for this sighting, omitted entirely when it did not.
+    Their absence never rejects a sighting per the same contract, a hopped
+    sighting always counts, it just cannot move a node's position ahead of
+    a sighting that is at least as direct."""
     record = {
         "node_id": node_id.lower(),
-        "node_type": node_type.upper(),
+        "node_type": node_type,
         "name": name or node_id,
         "lat": lat,
         "lon": lon,
         "rssi": rssi,
         "first_seen": _format_first_seen(timestamp),
         "type": MESHCORE_ENVELOPE_TYPE,
+        "network": "meshcore",
     }
     key = _clean_pubkey(public_key)
     if len(key) == PUBKEY_FULL_HEX and key.startswith(record["node_id"]):
         record["public_key"] = key
+    if path_hops not in (None, ""):
+        record["path_hops"] = path_hops
+    if path_length not in (None, ""):
+        try:
+            record["path_length"] = int(path_length)
+        except (TypeError, ValueError):
+            pass
     return record
 
 
@@ -361,7 +399,7 @@ def _node_token_to_record(token: str, timestamp: str,
     if not m:
         return None
     display_id, marker, snr_s = m.group(1), m.group(2), m.group(3)
-    node_type = (_NODE_TYPE_MARKERS.get(marker.upper(), DEFAULT_NODE_TYPE)
+    node_type = (_NODE_TYPE_MARKERS.get(marker.upper(), marker.upper())
                  if marker else DEFAULT_NODE_TYPE)
     key = _pubkey_for(pubkeys, display_id)
     node_id = derive_node_id(key, display_id)
@@ -616,7 +654,11 @@ def _normalise_meshmapper_row(row: dict[str, str]) -> dict[str, Any] | None:
 
     Target schema (snr is parsed for validation but dropped from the wire
     since v0.4.3):
-        node_id,node_type,name,lat,lon,rssi,first_seen,type
+        node_id,node_type,name,lat,lon,rssi,first_seen,type,network
+
+    `path_hops` and `path_length` are carried through onto the wire record
+    (LOCOSP's 2026-08-12 contract) when this row has them; a flat CSV row
+    always has both columns, so in practice they are always sent from here.
 
     Returns None for rows missing required fields or with unparseable numerics.
     Paste-damaged rows skip silently this way.
@@ -632,7 +674,9 @@ def _normalise_meshmapper_row(row: dict[str, str]) -> dict[str, Any] | None:
         return None
 
     return _build_record(row["repeater_id"], DEFAULT_NODE_TYPE, "",
-                        lat, lon, rssi, snr, row["timestamp"])
+                        lat, lon, rssi, snr, row["timestamp"],
+                        path_hops=row.get("path_hops"),
+                        path_length=row.get("path_length"))
 
 
 def _split_sections(lines: list[str]) -> list[tuple[str | None, list[str]]]:

@@ -559,5 +559,109 @@ class VersionTests(unittest.TestCase):
         self.assertFalse(heimdall._is_newer("0.4.0", "not-a-version"))
 
 
+class NetworkFieldTests(unittest.TestCase):
+    """LOCOSP's 2026-08-12 mesh-slot contract: the server now takes both
+    MeshCore and Meshtastic, told apart by an authoritative `network` field.
+    Heimdall parses MeshCore captures only, so every record it builds states
+    that positively."""
+
+    def test_flat_csv_rows_carry_network_meshcore(self):
+        rows = heimdall.parse_meshmapper_text(SAMPLE)
+        self.assertTrue(rows)
+        self.assertTrue(all(r["network"] == "meshcore" for r in rows))
+
+    def test_sectioned_csv_rows_carry_network_meshcore(self):
+        rows = heimdall.parse_meshmapper_text(SECTIONED_CSV)
+        self.assertTrue(rows)
+        self.assertTrue(all(r["network"] == "meshcore" for r in rows))
+
+    def test_offline_json_rows_carry_network_meshcore(self):
+        rows = heimdall.parse_offline_json_obj(json.loads(OFFLINE_JSON))
+        self.assertTrue(rows)
+        self.assertTrue(all(r["network"] == "meshcore" for r in rows))
+
+    def test_build_record_sets_network_meshcore(self):
+        rec = heimdall._build_record("0ce8fe4fb8e5ea2c", "REPEATER", "0CE8",
+                                     1.0, 2.0, None, None, "t")
+        self.assertEqual(rec["network"], "meshcore")
+
+
+class PathHopsWireFieldTests(unittest.TestCase):
+    """LOCOSP's 2026-08-12 contract: send `path_hops` when the capture has
+    it, used as proposed to decide whether a sighting may move a node's
+    position; its absence never rejects a sighting, so it must be omitted
+    entirely (not sent as null) rather than guessed. Same pattern already
+    used for `public_key`. The MeshMapper flat 'Copy CSV' header carries
+    both `path_length` and `path_hops` columns; packed TX/DISC sections and
+    offline-JSON pings carry neither."""
+
+    def test_present_when_the_flat_csv_row_has_it(self):
+        rows = heimdall.parse_meshmapper_text(SAMPLE)
+        self.assertEqual(rows[0]["path_hops"], "29|1F|60|AE|08|77|79|E4")
+        self.assertEqual(rows[1]["path_hops"],
+                         "37|AB|54|61|60|AE|98|31|47|A1|19")
+
+    def test_path_length_included_alongside_it(self):
+        rows = heimdall.parse_meshmapper_text(SAMPLE)
+        self.assertEqual(rows[0]["path_length"], 8)
+        self.assertEqual(rows[1]["path_length"], 11)
+
+    def test_omitted_rather_than_null_from_packed_sections(self):
+        # TX/DISC packed sections have no path_hops/path_length column at all.
+        rows = heimdall.parse_meshmapper_text(SECTIONED_CSV)
+        self.assertTrue(all("path_hops" not in r for r in rows))
+        self.assertTrue(all("path_length" not in r for r in rows))
+
+    def test_omitted_rather_than_null_from_offline_json(self):
+        rows = heimdall.parse_offline_json_obj(json.loads(OFFLINE_JSON))
+        self.assertTrue(all("path_hops" not in r for r in rows))
+        self.assertTrue(all("path_length" not in r for r in rows))
+
+    def test_build_record_omits_path_hops_when_not_given(self):
+        rec = heimdall._build_record("0ce8fe4fb8e5ea2c", "REPEATER", "0CE8",
+                                     1.0, 2.0, None, None, "t")
+        self.assertNotIn("path_hops", rec)
+        self.assertNotIn("path_length", rec)
+
+    def test_build_record_includes_path_hops_when_given(self):
+        rec = heimdall._build_record("0ce8fe4fb8e5ea2c", "REPEATER", "0CE8",
+                                     1.0, 2.0, None, None, "t",
+                                     path_hops="29|1F|60|AE", path_length=4)
+        self.assertEqual(rec["path_hops"], "29|1F|60|AE")
+        self.assertEqual(rec["path_length"], 4)
+
+
+class RoleKeptAsCapturedTests(unittest.TestCase):
+    """LOCOSP's 2026-08-12 contract: send the role exactly as captured, the
+    server keeps it verbatim and maps it internally. A single-letter
+    MeshMapper marker Heimdall doesn't recognise must never be silently
+    coerced into DEFAULT_NODE_TYPE ("REPEATER"), that would misrepresent
+    a captured role Heimdall simply hasn't pinned down the full name for
+    yet. Absence of any marker is the only case where a default is used,
+    since there is genuinely nothing captured to preserve."""
+
+    def test_known_marker_still_maps_to_repeater(self):
+        rec = heimdall._node_token_to_record("910E(R)(-6.00)", "t", 0.0, 0.0)
+        self.assertEqual(rec["node_type"], "REPEATER")
+
+    def test_unrecognised_marker_is_kept_verbatim_not_coerced(self):
+        # 'C' has never been confirmed, but it was captured, so it must ride
+        # through rather than being silently overwritten with "REPEATER".
+        rec = heimdall._node_token_to_record("1234(C)(-6.00)", "t", 0.0, 0.0)
+        self.assertEqual(rec["node_type"], "C")
+
+    def test_no_marker_at_all_falls_back_to_default(self):
+        # TX tokens never carry a marker; there's nothing captured to keep.
+        rec = heimdall._node_token_to_record("0CE8(-0.25)", "t", 0.0, 0.0)
+        self.assertEqual(rec["node_type"], heimdall.DEFAULT_NODE_TYPE)
+
+    def test_build_record_does_not_force_case_on_node_type(self):
+        # _build_record used to .upper() every node_type unconditionally;
+        # that is itself a normalisation of a captured value and must stop.
+        rec = heimdall._build_record("0ce8fe4fb8e5ea2c", "Repeater", "0CE8",
+                                     1.0, 2.0, None, None, "t")
+        self.assertEqual(rec["node_type"], "Repeater")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
