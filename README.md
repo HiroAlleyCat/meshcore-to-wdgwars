@@ -76,6 +76,10 @@ Both install paths work the same way for daily use. `--update` is smart enough t
 python3 heimdall.py --setup
 ```
 
+Generate a key just for Heimdall and give it a name, rather than reusing one you handed another tool. Keys are switched off one at a time from the same profile page, so revoking this one later costs you nothing else.
+
+By configuring a key you're authorising Heimdall to upload the captures you give it to WDGWars under your own account. It won't ask again per upload. Use `--preview` or `--dry-run` to see exactly what would be sent before you commit to it.
+
 Walks you through pasting your WDGWars API key, validates it against `/api/me`, and saves it to:
 
 | OS | Saved location |
