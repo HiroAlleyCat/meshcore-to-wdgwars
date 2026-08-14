@@ -83,11 +83,11 @@ MESHCORE_ENVELOPE_TYPE = "MESHCORE"
 DEFAULT_NODE_TYPE = "REPEATER"
 
 # ── MeshCore app database (SQLite) ──────────────────────────────────────────
-# The MeshCore phone app keeps its own SQLite store, and it holds roughly
-# three times the nodes its JSON export emits: on the 2026-08-13 reference
-# dump the export carried 380 nodes against 1164 in the database that had
-# both a fix and a key, and nothing was in the export that was not also in
-# the database. It is a strict superset, not a different view.
+# The MeshCore phone app keeps its own SQLite store, and it holds several
+# times the nodes its JSON export emits. Checked against a real capture:
+# every node in the export was also in the database, while a large
+# majority of the database's nodes carrying both a fix and a key never
+# reached the export at all. It is a strict superset, not a different view.
 #
 # Two tables carry nodes with the same column set: `contacts` is the list the
 # operator has saved, `discovered_contacts` is everything the app has ever
@@ -116,8 +116,8 @@ MESHCORE_DB_NODE_TYPES = {
 }
 
 # last_advert is a unix timestamp and a small minority of rows hold garbage:
-# 12 of 1343 in the reference dump sat outside any plausible range, 5 far in
-# the past and 7 far in the future, the worst reading as the year 2083.
+# in a real capture a handful sat outside any plausible range, some far in
+# the past and some far in the future, the worst reading as the year 2083.
 # Those rows are dropped rather than clamped. WDGWars decides which sighting
 # owns a node's position partly by recency, so uploading a year-2083
 # first_seen would outrank every genuine sighting of that node indefinitely,
@@ -970,8 +970,8 @@ def _meshcore_db_hops(advert_path: Any, advert_path_len: Any) -> tuple[int | Non
         bytes_per_hop = (advert_path_len >> 6) + 1
 
     which predicts the blob width exactly - `len(advert_path) == hops *
-    bytes_per_hop` held for all 1343 rows of the reference dump, with no
-    violations, across all three observed hop widths (1, 2 and 3 bytes).
+    bytes_per_hop` held for every row of a real capture, with no violations,
+    across all three observed hop widths (1, 2 and 3 bytes).
     That is what makes this a decode rather than a guess; anything failing
     the identity is a shape this function has not actually seen, so it
     returns None twice and the sighting uploads without a hop count instead

@@ -48,10 +48,10 @@ than by assuming a stdlib module is present because it is stdlib.
 
 ## [0.8.0] - 2026-08-14 - Reads the MeshCore app's own database, three times the nodes
 
-The app's SQLite store, not just the JSON it exports. On the reference dump
-that is 1164 nodes with a fix and a key against 380 in the export, with
-nothing in the export that was not also in the database, so the export was
-always a strict subset. A full public key on every row is the part that
+The app's SQLite store, not just the JSON it exports. Checked against a real
+capture, everything in the export was also in the database while a large
+majority of the database's nodes with a fix and a key never reached the
+export, so the export was always a strict subset. A full public key on every row is the part that
 matters most: that is what yields a server-legal 16-hex `node_id`.
 
 ### Added
@@ -66,11 +66,11 @@ matters most: that is what yields a server-legal 16-hex `node_id`.
   concluded it did not carry. `out_path_len` really is -1 on every row in
   both tables, but `discovered_contacts.advert_path_len` is bit-packed: hop
   count in the low 6 bits, bytes-per-hop minus one in the top two. The
-  identity `len(advert_path) == hops * bytes_per_hop` held for all 1343 rows
-  of the reference dump with zero violations across all three observed hop
-  widths, which is what makes it a decode rather than a guess. Any row
-  failing that identity uploads with no hop count rather than an invented
-  one. 1048 of 1153 records came out with a hop count.
+  identity `len(advert_path) == hops * bytes_per_hop` held for every row of
+  a real capture with zero violations across all three observed hop widths,
+  which is what makes it a decode rather than a guess. Any row failing that
+  identity uploads with no hop count rather than an invented one. The large
+  majority of records came out with a hop count.
 - `--since-days N` gates on `last_advert`. The database is all-time, so the
   previous way to avoid uploading years of history was to trim the file by
   hand before uploading.
@@ -93,13 +93,13 @@ matters most: that is what yields a server-legal 16-hex `node_id`.
   `REPEATER`, which is the failure mode that quietly mislabelled rows in
   0.6.x.
 - Rows whose `last_advert` is outside any plausible range are dropped, not
-  clamped. 12 of 1343 reference rows were bad, the worst reading as the year
-  2083. Since WDGWars settles which sighting owns a node's position partly
-  by recency, a year-2083 `first_seen` would outrank every genuine sighting
-  of that node indefinitely, and clamping to "now" causes the same damage
-  more quietly. Full accounting on the reference dump: 1693 rows scanned,
-  1153 kept, 298 duplicated across the two tables, 228 with no GPS fix, 14
-  with unusable timestamps.
+  clamped. A handful of rows in a real capture were bad, the worst reading
+  as the year 2083. Since WDGWars settles which sighting owns a node's
+  position partly by recency, a year-2083 `first_seen` would outrank every
+  genuine sighting of that node indefinitely, and clamping to "now" causes
+  the same damage more quietly. Every row that does not make it out is
+  accounted for as one of: duplicated across the two tables, no GPS fix, or
+  an unusable timestamp.
 - `custom_name` is never read. It is the operator's private label for
   someone else's node, not something that node broadcast.
 

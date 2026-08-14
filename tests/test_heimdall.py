@@ -737,14 +737,14 @@ def _row(seed="a", type_=2, name="R1", when=None, lat=12_345_678,
 
 
 class MeshcoreDbTests(unittest.TestCase):
-    """The app database is a strict superset of its own JSON export (380 vs
-    1164 nodes on the 2026-08-13 reference dump), so it is the format that
-    actually gets a mesh onto the map."""
+    """The app database is a strict superset of its own JSON export, by a
+    wide margin on a real capture, so it is the format that actually gets a
+    mesh onto the map."""
 
     def test_blob_public_key_becomes_a_hex_node_id(self):
         # The app stores public_key as a BLOB. The first cut of this parser
         # passed it to _clean_pubkey, which stringifies bytes to "b'\\xaa..'",
-        # fails its own hex check, and dropped all 1693 rows silently. This
+        # fails its own hex check, and dropped every row silently. This
         # is that bug: it must never come back as an empty parse.
         db = _make_db(discovered=[_row(seed="aa")])
         recs = heimdall.parse_meshcore_db(db)
@@ -861,11 +861,11 @@ class MeshcoreDbTests(unittest.TestCase):
     def test_custom_name_is_never_uploaded(self):
         # custom_name is the operator's private label for someone else's
         # node, not something that node broadcast.
-        db = _make_db(contacts=[_row(seed="c", name="KF4FLY-R1",
-                                     custom_name="dave from work")])
+        db = _make_db(contacts=[_row(seed="c", name="Example Advertised Name",
+                                     custom_name="PRIVATE local label")])
         rec = heimdall.parse_meshcore_db(db)[0]
-        self.assertEqual(rec["name"], "KF4FLY-R1")
-        self.assertNotIn("dave", json.dumps(rec))
+        self.assertEqual(rec["name"], "Example Advertised Name")
+        self.assertNotIn("PRIVATE", json.dumps(rec))
 
     def test_db_has_no_rssi(self):
         # These tables record that a node was heard and where it claimed to
