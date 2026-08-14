@@ -4,6 +4,70 @@ All notable changes to Heimdall are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.8.0] - 2026-08-14 - Reads the MeshCore app's own database, three times the nodes
+
+The app's SQLite store, not just the JSON it exports. On the reference dump
+that is 1164 nodes with a fix and a key against 380 in the export, with
+nothing in the export that was not also in the database, so the export was
+always a strict subset. A full public key on every row is the part that
+matters most: that is what yields a server-legal 16-hex `node_id`.
+
+### Added
+
+- `parse_meshcore_db` reads the MeshCore phone app database. Both node
+  tables (`discovered_contacts` and `contacts`, same column set, one saved
+  and one everything-ever-heard) are unioned on public key, keeping the
+  newer `last_advert` when a node is in both. Opened read-only through a
+  `file:...?mode=ro` URI so a live app database is never written to,
+  journalled, or silently upgraded by being read.
+- Hop counts recovered from the database, which earlier analysis had
+  concluded it did not carry. `out_path_len` really is -1 on every row in
+  both tables, but `discovered_contacts.advert_path_len` is bit-packed: hop
+  count in the low 6 bits, bytes-per-hop minus one in the top two. The
+  identity `len(advert_path) == hops * bytes_per_hop` held for all 1343 rows
+  of the reference dump with zero violations across all three observed hop
+  widths, which is what makes it a decode rather than a guess. Any row
+  failing that identity uploads with no hop count rather than an invented
+  one. 1048 of 1153 records came out with a hop count.
+- `--since-days N` gates on `last_advert`. The database is all-time, so the
+  previous way to avoid uploading years of history was to trim the file by
+  hand before uploading.
+- Format dispatch sniffs SQLite's file magic before anything else, so the
+  database is recognised under whatever filename it was shared as, and a
+  `.db` that is not SQLite still falls through to the text parsers.
+
+### Notes on what the database cannot give
+
+- No RSSI or SNR columns exist anywhere in it. It records that a node was
+  heard and where it said it was, not how strongly, so those records carry
+  `rssi: null` rather than a zero that would read as a real measurement.
+  Signal strength lives in the rx log, which needs a MeshCore frame decoder
+  and stays out of scope.
+- `type` is an integer, so this is the one input that translates the role
+  instead of passing it through verbatim, because there is no name in there
+  to pass through (`1` companion, `2` repeater, `3` room server, `4`
+  sensor, confirmed from the app by the reference node's operator). An
+  unrecognised integer drops the row rather than defaulting it to
+  `REPEATER`, which is the failure mode that quietly mislabelled rows in
+  0.6.x.
+- Rows whose `last_advert` is outside any plausible range are dropped, not
+  clamped. 12 of 1343 reference rows were bad, the worst reading as the year
+  2083. Since WDGWars settles which sighting owns a node's position partly
+  by recency, a year-2083 `first_seen` would outrank every genuine sighting
+  of that node indefinitely, and clamping to "now" causes the same damage
+  more quietly. Full accounting on the reference dump: 1693 rows scanned,
+  1153 kept, 298 duplicated across the two tables, 228 with no GPS fix, 14
+  with unusable timestamps.
+- `custom_name` is never read. It is the operator's private label for
+  someone else's node, not something that node broadcast.
+
+### Compatibility
+
+- Additive. The envelope, HMAC, key handling, scheduler, chunking, and every
+  existing parser are untouched, and `network` remains the constant
+  `"meshcore"`. `parse_file` takes an optional `since_days` argument that
+  defaults to None, so existing callers are unaffected.
+
 ## [0.7.0] - 2026-08-12 - Meshcore/Meshtastic told apart by `network`, hop count carried through
 
 LOCOSP shipped a new mesh-slot contract today, in direct response to a

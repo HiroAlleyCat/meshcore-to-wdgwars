@@ -44,6 +44,7 @@ import os
 import re
 import secrets
 import shutil
+import sqlite3
 import ssl
 import subprocess
 import sys
@@ -54,7 +55,7 @@ from pathlib import Path
 from typing import Any
 
 
-__version__ = "0.7.0"
+__version__ = "0.8.0"
 GITHUB_REPO = "Yggdrasil-AI-labs/meshcore-to-wdgwars"
 
 DEFAULT_ENDPOINT = "https://wdgwars.pl/api/upload/"
@@ -81,6 +82,50 @@ DEFAULT_SCHEDULE_TIME = "03:00"
 MESHCORE_ENVELOPE_TYPE = "MESHCORE"
 
 DEFAULT_NODE_TYPE = "REPEATER"
+
+# ── MeshCore app database (SQLite) ──────────────────────────────────────────
+# The MeshCore phone app keeps its own SQLite store, and it holds roughly
+# three times the nodes its JSON export emits: on the 2026-08-13 reference
+# dump the export carried 380 nodes against 1164 in the database that had
+# both a fix and a key, and nothing was in the export that was not also in
+# the database. It is a strict superset, not a different view.
+#
+# Two tables carry nodes with the same column set: `contacts` is the list the
+# operator has saved, `discovered_contacts` is everything the app has ever
+# heard. They overlap by public_key and are unioned here.
+MESHCORE_DB_TABLES = ("discovered_contacts", "contacts")
+
+# adv_lat / adv_lon are integers scaled by 1e6, not the 1e7 some other mesh
+# stacks use. Confirmed by decoding the reference dump both ways and checking
+# the results against the place names the rows carry in `adv_name`: at 1e6
+# every node landed in the region its own name claimed, and at 1e7 the whole
+# mesh landed in the Gulf of Guinea. Divided rather than shifted because the
+# scale is decimal, not binary.
+MESHCORE_DB_COORD_SCALE = 1_000_000
+
+# `type` is an integer in the database, not a role name, so unlike every
+# other Heimdall input this one cannot pass the role through verbatim -
+# there is no name in there to pass through. Mapping confirmed 2026-08-13 by
+# the operator of the reference node, from the app rather than by guessing.
+# Casing follows the rest of this module (DEFAULT_NODE_TYPE,
+# _NODE_TYPE_MARKERS); the server maps these onto its own internal set.
+MESHCORE_DB_NODE_TYPES = {
+    1: "COMPANION",
+    2: "REPEATER",
+    3: "ROOM_SERVER",
+    4: "SENSOR",
+}
+
+# last_advert is a unix timestamp and a small minority of rows hold garbage:
+# 12 of 1343 in the reference dump sat outside any plausible range, 5 far in
+# the past and 7 far in the future, the worst reading as the year 2083.
+# Those rows are dropped rather than clamped. WDGWars decides which sighting
+# owns a node's position partly by recency, so uploading a year-2083
+# first_seen would outrank every genuine sighting of that node indefinitely,
+# and clamping to "now" does the same damage more quietly. Dropping costs
+# one node; guessing corrupts one node's position for every player.
+MESHCORE_DB_TS_FLOOR = 1_577_836_800   # 2020-01-01, before MeshCore shipped
+MESHCORE_DB_TS_SKEW_AHEAD = 86_400     # tolerate a day of clock skew
 
 # A real MeshMapper export is a multi-section file. Each block starts with a
 # marker line like "--- DISC Log ---" and carries its own header row:
@@ -883,15 +928,211 @@ def parse_offline_json(path: Path) -> list[dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
+# MeshCore app database (SQLite)
+# ---------------------------------------------------------------------------
+
+def _meshcore_db_hops(advert_path: Any, advert_path_len: Any) -> tuple[int | None, int | None]:
+    """Recover (path_hops, path_length) from `discovered_contacts`.
+
+    `out_path_len` is -1 on every row of the reference dump, in both tables,
+    so that column carries no hop count and earlier analysis concluded the
+    database had none. It does: `advert_path_len` is bit-packed, with the hop
+    count in the low 6 bits and the *bytes per hop* minus one in the top two:
+
+        hops          = advert_path_len & 0x3F
+        bytes_per_hop = (advert_path_len >> 6) + 1
+
+    which predicts the blob width exactly - `len(advert_path) == hops *
+    bytes_per_hop` held for all 1343 rows of the reference dump, with no
+    violations, across all three observed hop widths (1, 2 and 3 bytes).
+    That is what makes this a decode rather than a guess; anything failing
+    the identity is a shape this function has not actually seen, so it
+    returns None twice and the sighting uploads without a hop count instead
+    of with an invented one.
+
+    Hop counts matter here rather than being decoration: WDGWars never
+    rejects a hopped sighting, but it will not let one move a node's
+    position ahead of a sighting that arrived at least as directly, so
+    supplying the count is what lets a direct sighting win on merit.
+    `contacts` rows have no advert_path columns at all and get (None, None).
+    """
+    if advert_path_len is None:
+        return None, None
+    try:
+        packed = int(advert_path_len)
+    except (TypeError, ValueError):
+        return None, None
+    if packed < 0:
+        return None, None
+    hops = packed & 0x3F
+    bytes_per_hop = (packed >> 6) + 1
+    blob = bytes(advert_path or b"")
+    if len(blob) != hops * bytes_per_hop:
+        return None, None
+    return hops, len(blob)
+
+
+def _meshcore_db_pubkey_hex(value: Any) -> str:
+    """Render a `public_key` column as hex text.
+
+    The app stores it as a BLOB, and the module's shared `_clean_pubkey` takes
+    text - handed raw bytes it stringifies them to "b'\\xd3l...'", which is
+    not hex, so the key silently fails its own validity check and every row
+    drops. Converted here rather than inside `_clean_pubkey` because every
+    other caller already passes text and does not need the branch. Text
+    columns pass straight through, in case an app version stores hex.
+    """
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return bytes(value).hex()
+    return str(value or "")
+
+
+def _meshcore_db_row_to_record(row: dict[str, Any]) -> dict[str, Any] | None:
+    """Convert one node row from the MeshCore app database, or None if the row
+    cannot be sent honestly.
+
+    Four reasons a row is dropped, all of them the server's own gates or a
+    value this parser refuses to invent:
+      * no public key, so there is no 16-hex node_id to derive and the server
+        would silently drop it;
+      * no GPS fix (both coordinates zero), which the ingest gates on;
+      * an unrecognised `type` integer - the mapping covers 1-4 and a 5 would
+        be a role this parser has never seen, so it is left for a human
+        rather than defaulted to REPEATER, which is what silently mislabelled
+        rows in an earlier release;
+      * a `last_advert` outside any plausible range (see
+        MESHCORE_DB_TS_FLOOR).
+    """
+    key = _clean_pubkey(_meshcore_db_pubkey_hex(row.get("public_key")))
+    if len(key) < PUBKEY_NODE_ID_HEX:
+        return None
+
+    lat_raw = row.get("adv_lat") or 0
+    lon_raw = row.get("adv_lon") or 0
+    if not lat_raw and not lon_raw:
+        return None
+    lat = _safe_float(lat_raw) / MESHCORE_DB_COORD_SCALE
+    lon = _safe_float(lon_raw) / MESHCORE_DB_COORD_SCALE
+
+    try:
+        node_type = MESHCORE_DB_NODE_TYPES[int(row.get("type"))]
+    except (TypeError, ValueError, KeyError):
+        return None
+
+    try:
+        last_advert = int(row.get("last_advert"))
+    except (TypeError, ValueError):
+        return None
+    ceiling = int(time.time()) + MESHCORE_DB_TS_SKEW_AHEAD
+    if not (MESHCORE_DB_TS_FLOOR <= last_advert <= ceiling):
+        return None
+    timestamp = datetime.datetime.fromtimestamp(
+        last_advert, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+
+    hops, path_length = _meshcore_db_hops(
+        row.get("advert_path"), row.get("advert_path_len"))
+
+    # `adv_name` is the name the node advertises over the air. `custom_name`
+    # is the operator's own private label for it and is deliberately not
+    # read: it is local annotation, not something that node broadcast, and
+    # uploading it would publish one player's notes about another's node.
+    name = str(row.get("adv_name") or "").strip()
+
+    # No RSSI or SNR anywhere in these tables. The database records that a
+    # node was heard and where it said it was, not how strongly - that lives
+    # in the rx log, which needs a frame decoder. Sent as None rather than a
+    # zero, which would read as a real measurement.
+    return _build_record(
+        derive_node_id(key, ""), node_type, name, lat, lon, None, None,
+        timestamp, public_key=key, path_hops=hops, path_length=path_length,
+    )
+
+
+def parse_meshcore_db(path: Path, since_days: float | None = None
+                      ) -> list[dict[str, Any]]:
+    """Parse the MeshCore app's own SQLite database.
+
+    Reads both node tables and unions them on public_key, keeping the row
+    with the newer `last_advert` when a node appears in both. The database is
+    all-time, so `since_days` gates on `last_advert` to keep a stale back
+    catalogue out of an upload - without it the only way to avoid sending
+    years of history was to trim the export by hand before uploading.
+
+    Opened read-only through a file: URI so a live app database is never
+    written to, journalled, or upgraded by being read.
+    """
+    if not path.is_file():
+        raise ValueError(f"no such database: {path}")
+    uri = f"file:{path.resolve().as_posix()}?mode=ro"
+    cutoff = None
+    if since_days is not None:
+        cutoff = time.time() - (float(since_days) * 86_400)
+
+    newest: dict[str, tuple[int, dict[str, Any]]] = {}
+    try:
+        conn = sqlite3.connect(uri, uri=True)
+    except sqlite3.Error as e:
+        raise ValueError(f"could not open {path.name} as a database: {e}") from e
+    try:
+        conn.row_factory = sqlite3.Row
+        present = {r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")}
+        tables = [t for t in MESHCORE_DB_TABLES if t in present]
+        if not tables:
+            raise ValueError(
+                f"{path.name} is a database but has no MeshCore node table "
+                f"(looked for {' or '.join(MESHCORE_DB_TABLES)})")
+        for table in tables:
+            for raw in conn.execute(f"SELECT * FROM {table}"):  # noqa: S608
+                row = dict(raw)
+                if cutoff is not None:
+                    try:
+                        if int(row.get("last_advert")) < cutoff:
+                            continue
+                    except (TypeError, ValueError):
+                        continue
+                record = _meshcore_db_row_to_record(row)
+                if record is None:
+                    continue
+                seen = int(row.get("last_advert") or 0)
+                prior = newest.get(record["node_id"])
+                if prior is None or seen > prior[0]:
+                    newest[record["node_id"]] = (seen, record)
+    finally:
+        conn.close()
+    return [record for _, record in newest.values()]
+
+
+# ---------------------------------------------------------------------------
 # Format dispatch
 # ---------------------------------------------------------------------------
 
-def parse_file(path: Path) -> tuple[list[dict[str, Any]], str]:
+def _is_sqlite(path: Path) -> bool:
+    """True if the file begins with SQLite's 16-byte format magic.
+
+    Sniffed rather than trusted from the extension because the MeshCore app
+    shares a database out under whatever name the operator saves it as, and a
+    `.db` that is not SQLite should fall through to the text parsers rather
+    than raise. Every SQLite file starts with this exact header.
+    """
+    try:
+        with path.open("rb") as fh:
+            return fh.read(16) == b"SQLite format 3\x00"
+    except OSError:
+        return False
+
+
+def parse_file(path: Path, since_days: float | None = None
+               ) -> tuple[list[dict[str, Any]], str]:
     """Detect the capture format and parse it. Returns (records, format_id).
 
-    Dispatch by extension first; for unknown/missing extensions, sniff the
-    first non-space byte ('{' -> JSON, else CSV).
+    Binary sniff first, since a SQLite database is not decodable as text and
+    reading one as UTF-8 would fail or produce nonsense before any extension
+    check got a say. Then dispatch by extension, and for unknown/missing
+    extensions sniff the first non-space byte ('{' -> JSON, else CSV).
     """
+    if _is_sqlite(path):
+        return parse_meshcore_db(path, since_days), "meshcore-app-db"
     suffix = path.suffix.lower()
     if suffix == ".json":
         return parse_offline_json(path), "meshcore-offline-json"
@@ -1580,6 +1821,9 @@ def main(argv: list[str] | None = None) -> int:
                    help=f"override upload URL (default: {DEFAULT_ENDPOINT})")
     p.add_argument("--endpoint", dest="endpoint_legacy", default=None,
                    help=argparse.SUPPRESS)  # deprecated alias for --api-url
+    p.add_argument("--since-days", type=float, default=None, metavar="N",
+                   help="MeshCore app database only: skip nodes not heard in "
+                        "the last N days (the database is all-time)")
     p.add_argument("--dry-run", action="store_true",
                    help="build the HMAC-signed envelope but do not POST")
     p.add_argument("--preview", action="store_true",
@@ -1701,10 +1945,14 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     try:
-        nodes, fmt = parse_file(capture)
-    except (ValueError, json.JSONDecodeError) as e:
+        nodes, fmt = parse_file(capture, args.since_days)
+    except (ValueError, json.JSONDecodeError, sqlite3.Error) as e:
         print(f"could not parse {capture.name}: {e}", file=sys.stderr)
         return 1
+    if args.since_days is not None and fmt != "meshcore-app-db":
+        print(f"[heimdall] heads-up: --since-days only filters a MeshCore app "
+              f"database; {capture.name} parsed as {fmt} and was not filtered.",
+              file=sys.stderr)
     print(f"parsed {len(nodes)} meshcore nodes from {args.csv.name} ({fmt})")
     if not nodes:
         print("nothing to upload", file=sys.stderr)

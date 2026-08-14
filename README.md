@@ -195,11 +195,16 @@ Heimdall never phones home on its own. If you want to know whether a newer relea
 | **MeshMapper flat "Copy CSV"** | Single header row `timestamp,repeater_id,snr,rssi,...` | MeshMapper app, RX log export |
 | **MeshMapper multi-section CSV** | `--- TX/RX/DISC Log ---` marker blocks, each with its own header | MeshMapper full log export |
 | **MeshCore offline ping-log JSON** | `.json` with a top-level `pings[]` array (`DISC` / `RX` / any key-bearing ping) | meshcore-ha / MeshCore offline capture |
+| **MeshCore app database (SQLite)** | `SQLite format 3` file magic, any filename, with a `discovered_contacts` or `contacts` table | MeshCore phone app, database share |
 | _Meshcore Companion serial dump_ | _Planned_ | T-Beam / Heltec / Wio Tracker via USB serial |
 | _Raw MQTT capture_ | _Planned_ | `mosquitto_sub` against a Meshcore broker |
 | _Cardputer ADV LoRa cap log_ | _Planned_ | M5Stack Cardputer Advanced with LoRa module |
 
-Format is auto-detected (by extension, then by content sniff). One `DISC`/`RX`/`TX` observation becomes one node record. **Note:** the CSV `TX`/`RX`/`DISC` sections log SNR and the receiver's noise floor but no per-node RSSI, so those records carry `rssi: null`; the offline-JSON `DISC` pings include real `local_rssi`. See [`examples/`](examples/) for a scrubbed sample of each format.
+Format is auto-detected (SQLite magic first, then extension, then a content sniff). One `DISC`/`RX`/`TX` observation becomes one node record. **Note:** the CSV `TX`/`RX`/`DISC` sections log SNR and the receiver's noise floor but no per-node RSSI, so those records carry `rssi: null`; the offline-JSON `DISC` pings include real `local_rssi`. See [`examples/`](examples/) for a scrubbed sample of each format.
+
+**If you have the app database, use it.** It is a strict superset of the app's own JSON export, and a large one: on the reference dump the export held 380 nodes against 1164 in the database that had both a fix and a key, and there was nothing in the export that was not also in the database. It carries a full public key on every node, which is what gets you a server-legal 16-hex `node_id`, and a `last_advert` timestamp so `--since-days N` can hold back a stale back catalogue instead of you trimming the file by hand. The database is opened read-only, so pointing Heimdall at a live app database will not write to it.
+
+Two things the database does not have. There is no RSSI or SNR anywhere in it, since it records that a node was heard and where it claimed to be, not how strongly, so those records carry `rssi: null`. And its `type` column is an integer rather than a role name (`1` companion, `2` repeater, `3` room server, `4` sensor), so this is the one input where the role is translated rather than passed through verbatim: there is no name in there to pass through. An unrecognised type integer drops the row rather than defaulting it, so a role this tool has not confirmed never gets uploaded under a guessed label.
 
 ### Node IDs
 
@@ -236,6 +241,7 @@ Italicised rows are not yet implemented. They are on the roadmap once sample dat
 | `--whoami` | Validate your stored API key by hitting `/api/me` and printing username + node counts. | off |
 | `--key KEY` | WDGWars API key. Overrides the `WDGWARS_API_KEY` env var and the saved key. Matches Muninn + wigle-to-wdgwars. | env / saved |
 | `--preview` | Parse the file, print the first six normalised rows as JSON, then exit. No envelope build, no upload. | off |
+| `--since-days N` | MeshCore app database only: skip nodes not heard in the last N days. The database is all-time, so without this an upload carries the whole back catalogue. Ignored (with a note) for other formats. | (all) |
 | `--dry-run` | Build the full HMAC-signed request envelope (same bytes the live upload would send), print a short summary per chunk, but do **not** POST. | off |
 | `--api-url URL` | Override the WDGWars upload URL. Matches Muninn. | `https://wdgwars.pl/api/upload/` |
 | `--schedule` | Install a daily scheduled upload. Pairs with `--schedule-csv PATH`. | off |
@@ -272,6 +278,12 @@ Italicised rows are not yet implemented. They are on the roadmap once sample dat
 # Real upload, key in env (keeps the key out of shell history)
 export WDGWARS_API_KEY=YOUR_KEY
 ./run.sh my-capture.csv
+
+# Upload from the MeshCore app database (any filename; detected by file magic)
+./run.sh meshcore.db
+
+# Same, but only nodes heard in the last 20 days
+./run.sh meshcore.db --since-days 20
 
 # Confirm the saved key is valid
 ./run.sh --whoami

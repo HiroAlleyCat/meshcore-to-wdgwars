@@ -7,8 +7,10 @@ import base64
 import hashlib
 import hmac
 import json
+import sqlite3
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -661,6 +663,236 @@ class RoleKeptAsCapturedTests(unittest.TestCase):
         rec = heimdall._build_record("0ce8fe4fb8e5ea2c", "Repeater", "0CE8",
                                      1.0, 2.0, None, None, "t")
         self.assertEqual(rec["node_type"], "Repeater")
+
+
+_DISCOVERED_DDL = """
+CREATE TABLE discovered_contacts (
+  id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+  public_key BLOB NOT NULL UNIQUE, type INTEGER NOT NULL,
+  flags INTEGER NOT NULL, out_path_len INTEGER NOT NULL,
+  out_path BLOB NOT NULL, adv_name TEXT NOT NULL,
+  last_advert INTEGER NOT NULL, adv_lat INTEGER NOT NULL,
+  adv_lon INTEGER NOT NULL, last_mod INTEGER NOT NULL,
+  advert_path BLOB NULL, advert_path_len INTEGER NULL)
+"""
+
+_CONTACTS_DDL = """
+CREATE TABLE contacts (
+  id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+  public_key BLOB NOT NULL UNIQUE, type INTEGER NOT NULL,
+  flags INTEGER NOT NULL, out_path_len INTEGER NOT NULL,
+  out_path BLOB NOT NULL, adv_name TEXT NOT NULL,
+  last_advert INTEGER NOT NULL, adv_lat INTEGER NOT NULL,
+  adv_lon INTEGER NOT NULL, last_mod INTEGER NOT NULL,
+  repeater_admin_password TEXT NULL, room_password TEXT NULL,
+  last_message_sent_or_received_at INTEGER NULL,
+  custom_name TEXT NULL, draft_message_text TEXT NULL)
+"""
+
+
+def _key(seed: str) -> bytes:
+    """A 32-byte key blob, as the app stores it: BLOB, not hex text."""
+    return bytes.fromhex((seed * 64)[:64])
+
+
+def _make_db(discovered=(), contacts=()) -> Path:
+    """Build a synthetic MeshCore app database.
+
+    Synthetic rather than a trimmed copy of a real dump on purpose: a real one
+    carries other operators' node positions, and `examples/` already zeroes
+    coordinates for the same reason.
+    """
+    path = Path(tempfile.mkdtemp()) / "meshcore.db"
+    conn = sqlite3.connect(path)
+    conn.executescript(_DISCOVERED_DDL + ";" + _CONTACTS_DDL)
+    for row in discovered:
+        conn.execute(
+            "INSERT INTO discovered_contacts (public_key,type,flags,"
+            "out_path_len,out_path,adv_name,last_advert,adv_lat,adv_lon,"
+            "last_mod,advert_path,advert_path_len) "
+            "VALUES (:public_key,:type,0,-1,x'00',:adv_name,:last_advert,"
+            ":adv_lat,:adv_lon,0,:advert_path,:advert_path_len)", row)
+    for row in contacts:
+        conn.execute(
+            "INSERT INTO contacts (public_key,type,flags,out_path_len,"
+            "out_path,adv_name,last_advert,adv_lat,adv_lon,last_mod,"
+            "custom_name) VALUES (:public_key,:type,0,-1,x'00',:adv_name,"
+            ":last_advert,:adv_lat,:adv_lon,0,:custom_name)", row)
+    conn.commit()
+    conn.close()
+    return path
+
+
+def _row(seed="a", type_=2, name="R1", when=None, lat=12_345_678,
+         lon=-98_765_432, advert_path=None, advert_path_len=None,
+         custom_name=None):
+    return {
+        "public_key": _key(seed), "type": type_, "adv_name": name,
+        "last_advert": int(time.time()) - 3600 if when is None else when,
+        "adv_lat": lat, "adv_lon": lon, "advert_path": advert_path,
+        "advert_path_len": advert_path_len, "custom_name": custom_name,
+    }
+
+
+class MeshcoreDbTests(unittest.TestCase):
+    """The app database is a strict superset of its own JSON export (380 vs
+    1164 nodes on the 2026-08-13 reference dump), so it is the format that
+    actually gets a mesh onto the map."""
+
+    def test_blob_public_key_becomes_a_hex_node_id(self):
+        # The app stores public_key as a BLOB. The first cut of this parser
+        # passed it to _clean_pubkey, which stringifies bytes to "b'\\xaa..'",
+        # fails its own hex check, and dropped all 1693 rows silently. This
+        # is that bug: it must never come back as an empty parse.
+        db = _make_db(discovered=[_row(seed="aa")])
+        recs = heimdall.parse_meshcore_db(db)
+        self.assertEqual(len(recs), 1)
+        self.assertEqual(recs[0]["node_id"], "a" * 16)
+        self.assertEqual(recs[0]["public_key"], "a" * 64)
+
+    def test_coordinates_use_the_one_million_scale(self):
+        # Synthetic digits rather than a real node's advertised position, for
+        # the same reason examples/ zeroes its coordinates. 1e7 would put
+        # every one of these nodes in the Gulf of Guinea.
+        db = _make_db(discovered=[_row(lat=12_345_678, lon=-98_765_432)])
+        rec = heimdall.parse_meshcore_db(db)[0]
+        self.assertAlmostEqual(rec["lat"], 12.345678, places=6)
+        self.assertAlmostEqual(rec["lon"], -98.765432, places=6)
+
+    def test_type_integers_map_to_confirmed_roles(self):
+        db = _make_db(discovered=[
+            _row(seed="1", type_=1), _row(seed="2", type_=2),
+            _row(seed="3", type_=3), _row(seed="4", type_=4)])
+        got = {r["node_id"][0]: r["node_type"]
+               for r in heimdall.parse_meshcore_db(db)}
+        self.assertEqual(got, {"1": "COMPANION", "2": "REPEATER",
+                               "3": "ROOM_SERVER", "4": "SENSOR"})
+
+    def test_unknown_type_integer_is_dropped_not_defaulted(self):
+        # Defaulting an unseen role to REPEATER is how a thousand rows get
+        # mislabelled quietly; a role we have not confirmed is not ours to
+        # name.
+        db = _make_db(discovered=[_row(seed="b", type_=9)])
+        self.assertEqual(heimdall.parse_meshcore_db(db), [])
+
+    def test_hop_count_decodes_from_packed_advert_path_len(self):
+        # out_path_len is -1 on every row of the reference dump, but
+        # advert_path_len packs hops in the low 6 bits and bytes-per-hop
+        # minus one in the top two. All three widths appear in real data.
+        db = _make_db(discovered=[
+            _row(seed="c", advert_path=b"\x01" * 5, advert_path_len=5),
+            _row(seed="d", advert_path=b"\x01" * 12, advert_path_len=70),
+            _row(seed="e", advert_path=b"\x01" * 18, advert_path_len=134)])
+        got = {r["node_id"][0]: (r["path_hops"], r["path_length"])
+               for r in heimdall.parse_meshcore_db(db)}
+        self.assertEqual(got["c"], (5, 5))    # 1 byte per hop
+        self.assertEqual(got["d"], (6, 12))   # 2 bytes per hop
+        self.assertEqual(got["e"], (6, 18))   # 3 bytes per hop
+
+    def test_advert_path_len_that_fails_the_identity_yields_no_hops(self):
+        # If len(blob) != hops * bytes_per_hop the packing is not the shape
+        # this decode was proven against, so it must report nothing rather
+        # than a plausible number.
+        db = _make_db(discovered=[
+            _row(seed="c", advert_path=b"\x01" * 7, advert_path_len=70)])
+        rec = heimdall.parse_meshcore_db(db)[0]
+        self.assertNotIn("path_hops", rec)
+        self.assertNotIn("path_length", rec)
+
+    def test_contacts_rows_have_no_hop_count(self):
+        db = _make_db(contacts=[_row(seed="f")])
+        rec = heimdall.parse_meshcore_db(db)[0]
+        self.assertNotIn("path_hops", rec)
+
+    def test_absurd_last_advert_is_dropped_not_clamped(self):
+        # A year-2083 first_seen would outrank every genuine sighting of that
+        # node forever; clamping to now does the same damage more quietly.
+        far_future = int(time.time()) + (86_400 * 365)
+        db = _make_db(discovered=[
+            _row(seed="c", when=far_future),
+            _row(seed="d", when=118_803),  # 1970, seen in the real dump
+            _row(seed="e")])
+        recs = heimdall.parse_meshcore_db(db)
+        self.assertEqual([r["node_id"][0] for r in recs], ["e"])
+
+    def test_mild_clock_skew_ahead_is_tolerated(self):
+        db = _make_db(discovered=[_row(when=int(time.time()) + 3600)])
+        self.assertEqual(len(heimdall.parse_meshcore_db(db)), 1)
+
+    def test_no_gps_fix_is_dropped(self):
+        db = _make_db(discovered=[_row(seed="c", lat=0, lon=0), _row(seed="d")])
+        recs = heimdall.parse_meshcore_db(db)
+        self.assertEqual([r["node_id"][0] for r in recs], ["d"])
+
+    def test_since_days_gates_a_stale_back_catalogue(self):
+        old = int(time.time()) - (86_400 * 40)
+        db = _make_db(discovered=[_row(seed="c", when=old), _row(seed="d")])
+        self.assertEqual(len(heimdall.parse_meshcore_db(db)), 2)
+        recent = heimdall.parse_meshcore_db(db, since_days=20)
+        self.assertEqual([r["node_id"][0] for r in recent], ["d"])
+
+    def test_union_across_tables_keeps_the_newer_sighting(self):
+        # Both orderings, because the tables are read in a fixed order: a
+        # test that only puts the fresh row in the table read second passes
+        # even when the newest-wins comparison is removed entirely, which is
+        # exactly what the first version of this test did.
+        old = int(time.time()) - (86_400 * 10)
+        new = int(time.time()) - 60
+        for label, discovered_when, contacts_when in (
+                ("fresh in contacts", old, new),
+                ("fresh in discovered", new, old)):
+            with self.subTest(label):
+                db = _make_db(
+                    discovered=[_row(seed="c", name="d", when=discovered_when)],
+                    contacts=[_row(seed="c", name="c", when=contacts_when)])
+                recs = heimdall.parse_meshcore_db(db)
+                self.assertEqual(len(recs), 1)
+                expected = "c" if contacts_when == new else "d"
+                self.assertEqual(recs[0]["name"], expected)
+                self.assertEqual(
+                    recs[0]["first_seen"],
+                    heimdall._format_first_seen(
+                        heimdall.datetime.datetime.fromtimestamp(
+                            new, heimdall.datetime.timezone.utc
+                        ).strftime("%Y-%m-%dT%H:%M:%S")))
+
+    def test_custom_name_is_never_uploaded(self):
+        # custom_name is the operator's private label for someone else's
+        # node, not something that node broadcast.
+        db = _make_db(contacts=[_row(seed="c", name="KF4FLY-R1",
+                                     custom_name="dave from work")])
+        rec = heimdall.parse_meshcore_db(db)[0]
+        self.assertEqual(rec["name"], "KF4FLY-R1")
+        self.assertNotIn("dave", json.dumps(rec))
+
+    def test_db_has_no_rssi(self):
+        # These tables record that a node was heard and where it claimed to
+        # be, not how strongly. A zero would read as a real measurement.
+        db = _make_db(discovered=[_row()])
+        self.assertIsNone(heimdall.parse_meshcore_db(db)[0]["rssi"])
+
+    def test_dispatch_detects_sqlite_by_magic_not_extension(self):
+        # The app shares its database out under whatever name the operator
+        # saves it as, so the sniff has to lead.
+        db = _make_db(discovered=[_row()])
+        renamed = db.with_suffix(".json")
+        db.rename(renamed)
+        recs, fmt = heimdall.parse_file(renamed)
+        self.assertEqual(fmt, "meshcore-app-db")
+        self.assertEqual(len(recs), 1)
+
+    def test_records_clear_the_servers_own_gates(self):
+        db = _make_db(discovered=[_row()])
+        recs = heimdall.parse_meshcore_db(db)
+        self.assertEqual(heimdall.predict_server_rejects(recs), [])
+
+    def test_non_sqlite_db_extension_still_falls_through_to_text(self):
+        path = Path(tempfile.mkdtemp()) / "notreally.db"
+        path.write_text("timestamp,repeater_id,snr,rssi,latitude,longitude\n"
+                        "2026-07-02T18:39:27,0CE8,0.5,-101,48.7,2.07\n",
+                        encoding="utf-8")
+        _, fmt = heimdall.parse_file(path)
+        self.assertEqual(fmt, "meshmapper-csv")
 
 
 if __name__ == "__main__":

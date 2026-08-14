@@ -14,3 +14,6 @@ api.key
 
 # Generated: web parser is copied from root heimdall.py (serve.py on startup, CI pages.yml on deploy)
 web/heimdall.py
+
+# rtk (token-killer) local state, not project content
+rtk/
