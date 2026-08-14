@@ -44,7 +44,6 @@ import os
 import re
 import secrets
 import shutil
-import sqlite3
 import ssl
 import subprocess
 import sys
@@ -55,7 +54,7 @@ from pathlib import Path
 from typing import Any
 
 
-__version__ = "0.8.0"
+__version__ = "0.8.1"
 GITHUB_REPO = "Yggdrasil-AI-labs/meshcore-to-wdgwars"
 
 DEFAULT_ENDPOINT = "https://wdgwars.pl/api/upload/"
@@ -931,6 +930,34 @@ def parse_offline_json(path: Path) -> list[dict[str, Any]]:
 # MeshCore app database (SQLite)
 # ---------------------------------------------------------------------------
 
+def _import_sqlite3():
+    """Import sqlite3 on demand, with an explanation when it is not there.
+
+    Imported here rather than at module top level because Pyodide *unvendors*
+    sqlite3 from the standard library, exactly as it does `ssl`. A top-level
+    `import sqlite3` therefore does not degrade database support in the web
+    frontend, it takes the whole page down before it can parse anything at
+    all, CSV and JSON included, since heimdall.py is imported as one module.
+    Confirmed against the pinned Pyodide 0.26.4: bare import raises
+    ModuleNotFoundError, and `loadPackage("sqlite3")` then provides SQLite
+    3.39.0. web/app.js loads it alongside `ssl` for that reason.
+
+    Keeping the import lazy means a web deploy that forgets the package still
+    handles every text format and only this one input reports a clear reason.
+    The CLI is unaffected either way; CPython vendors sqlite3.
+    """
+    try:
+        import sqlite3
+    except ModuleNotFoundError as e:  # pragma: no cover - CPython always has it
+        raise ValueError(
+            "this build has no sqlite3 module, so the MeshCore app database "
+            "cannot be read (the CLI is unaffected; on the web frontend the "
+            "runtime needs to load the sqlite3 package first). Export the "
+            "app's JSON instead, or use the CLI."
+        ) from e
+    return sqlite3
+
+
 def _meshcore_db_hops(advert_path: Any, advert_path_len: Any) -> tuple[int | None, int | None]:
     """Recover (path_hops, path_length) from `discovered_contacts`.
 
@@ -1061,6 +1088,7 @@ def parse_meshcore_db(path: Path, since_days: float | None = None
     Opened read-only through a file: URI so a live app database is never
     written to, journalled, or upgraded by being read.
     """
+    sqlite3 = _import_sqlite3()
     if not path.is_file():
         raise ValueError(f"no such database: {path}")
     uri = f"file:{path.resolve().as_posix()}?mode=ro"
@@ -1098,6 +1126,11 @@ def parse_meshcore_db(path: Path, since_days: float | None = None
                 prior = newest.get(record["node_id"])
                 if prior is None or seen > prior[0]:
                     newest[record["node_id"]] = (seen, record)
+    except sqlite3.Error as e:
+        # Surfaced as ValueError so callers need one except clause and do not
+        # have to import sqlite3 themselves just to catch a corrupt file. A
+        # truncated or half-copied database lands here.
+        raise ValueError(f"could not read {path.name}: {e}") from e
     finally:
         conn.close()
     return [record for _, record in newest.values()]
@@ -1946,7 +1979,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         nodes, fmt = parse_file(capture, args.since_days)
-    except (ValueError, json.JSONDecodeError, sqlite3.Error) as e:
+    except (ValueError, json.JSONDecodeError) as e:
         print(f"could not parse {capture.name}: {e}", file=sys.stderr)
         return 1
     if args.since_days is not None and fmt != "meshcore-app-db":

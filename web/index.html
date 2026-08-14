@@ -450,11 +450,11 @@
 
   <div class="panel">
     <span class="panel-label">drop zone</span>
-    <div class="drop" id="drop" tabindex="0" role="button" aria-label="Drop a MeshMapper CSV or MeshCore JSON here">
-      <strong>Drop MeshMapper CSV or MeshCore JSON</strong>
+    <div class="drop" id="drop" tabindex="0" role="button" aria-label="Drop a MeshMapper CSV, MeshCore JSON, or MeshCore app database here">
+      <strong>Drop MeshMapper CSV, MeshCore JSON, or app database</strong>
       <small>or click to browse</small>
-      <span class="formats">.csv .txt .json // MeshMapper "Copy CSV" / multi-section log / offline ping-log</span>
-      <input type="file" id="file" accept=".csv,.txt,.json,text/csv,text/plain,application/json">
+      <span class="formats">.csv .txt .json .db // MeshMapper "Copy CSV" / multi-section log / offline ping-log / MeshCore app database</span>
+      <input type="file" id="file" accept=".csv,.txt,.json,.db,.sqlite,.sqlite3,text/csv,text/plain,application/json,application/vnd.sqlite3,application/x-sqlite3">
     </div>
     <div class="status" id="status"><span class="spinner"></span>booting heimdall runtime...</div>
   </div>
@@ -463,7 +463,7 @@
     <span class="panel-label">decoded // meshcore_nodes</span>
     <div class="pills" id="summary"></div>
     <table id="preview"><thead><tr>
-      <th>NODE_ID</th><th>TYPE</th><th>LAT</th><th>LON</th><th>RSSI</th><th>SNR</th>
+      <th>NODE_ID</th><th>ROLE</th><th>LAT</th><th>LON</th><th>RSSI</th><th>SNR</th><th>HOPS</th>
     </tr></thead><tbody></tbody></table>
     <div class="row">
       <button id="download" class="primary">↓ Download JSON</button>

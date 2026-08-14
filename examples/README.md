@@ -42,3 +42,48 @@ unique nodes in this file clear wdgwars.pl's `node_id` gate and carry a verified
 `public_key` on the wire (they still bounce as `no_gps`, by design for a
 scrubbed fixture). The sixteenth is an `RX` token for a node this capture never
 logged a key for.
+
+## `meshcore-app.db`
+
+A **synthetic** MeshCore app database, matching the real app's schema
+(`discovered_contacts` + `contacts`, same column set) but containing no real
+node. Every other fixture here is a real capture with coordinates zeroed;
+this one could not be, for two reasons. The database parser drops rows with
+no GPS fix rather than passing them through, so a zeroed copy of a real
+database would parse to zero records and demonstrate nothing. And a real
+database carries other operators' node positions in a column the parser
+actually reads, rather than in one it ignores.
+
+So the coordinates are repeated digits (`1.111111`, `2.222222`, ...) that are
+obviously not a place, and the public keys are repeated bytes. Nine rows in,
+seven records out. Each row exists to exercise one documented behaviour:
+
+| Row | What it demonstrates |
+|---|---|
+| Example Repeater A | 1 byte per hop: `advert_path_len` 5, blob 5 bytes, 5 hops |
+| Example Repeater B | 2 bytes per hop: `advert_path_len` 70 (`0x46`), blob 12 bytes, 6 hops |
+| Example Companion | 3 bytes per hop: `advert_path_len` 134 (`0x86`), blob 18 bytes, 6 hops |
+| Example Room Server | `type` 3, and a row with no `advert_path` at all (no hop count) |
+| Example Sensor | `type` 4, the role that never appeared in the reference dump |
+| Example No Fix | **Dropped.** Both coordinates zero; the server gates on a real fix |
+| Example Bad Clock | **Dropped.** `last_advert` in 2083, dropped rather than clamped |
+| Example Bad Path | Uploads with **no** hop count: `advert_path_len` 70 against a 7-byte blob fails the `hops * bytes_per_hop` identity, so no count is claimed |
+| Example Both Tables | Present in both tables; the union keeps the newer `last_advert`, and the `custom_name` on the `contacts` row must never reach the wire |
+
+Unlike the other fixtures, these records **clear** the server's gates
+(`predict_server_rejects` returns nothing), because the fix is non-zero and
+the 16-hex `node_id` derives from a full key. Do not upload it: it would put
+seven fictional nodes on the live map. Use `--preview` or `--dry-run`.
+
+```bash
+python3 heimdall.py examples/meshcore-app.db --preview
+```
+
+Timestamps are fixed rather than generated relative to now, so the file is
+byte-stable if regenerated. That does mean `--since-days` will eventually
+filter the whole fixture out as it ages, which is correct behaviour rather
+than a broken fixture.
+
+Do **not** commit a real MeshCore app database. It holds every node the
+device ever heard, with coordinates, and unlike the CSV fixtures there is no
+zeroing pass that leaves it still useful.

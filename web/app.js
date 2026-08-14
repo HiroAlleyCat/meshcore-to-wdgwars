@@ -1,5 +1,7 @@
 // Heimdall. Web frontend. Loads Pyodide, runs heimdall.py's parser
-// client-side against a dropped MeshMapper CSV, then offers download
+// client-side against a dropped MeshMapper CSV, MeshCore JSON, or the
+// MeshCore app database (binary, written to the Pyodide FS as raw bytes,
+// so heimdall.parse_file's SQLite magic sniff sees it intact), then offers download
 // or upload.
 
 const $ = (id) => document.getElementById(id);
@@ -51,8 +53,15 @@ async function bootPyodide() {
   // Pyodide unvendors `ssl` from stdlib; heimdall.py imports urllib which
   // pulls it transitively. Web frontend uses fetch() so the urllib path is
   // dead, but top-level import has to resolve.
+  //
+  // sqlite3 is unvendored the same way, and is what reads the MeshCore app
+  // database. Verified against this pinned Pyodide (0.26.4): a bare
+  // `import sqlite3` raises ModuleNotFoundError, and loading the package
+  // here provides SQLite 3.39.0. heimdall.py also imports it lazily rather
+  // than at module top level, so if this load ever fails the page still
+  // parses every text format instead of dying on import.
   setStatus("Loading runtime modules...", "");
-  await pyodide.loadPackage(["ssl"]);
+  await pyodide.loadPackage(["ssl", "sqlite3"]);
 
   // Pull heimdall.py from the same directory and write into Pyodide's FS.
   const src = await fetch("./heimdall.py").then(r => {
@@ -64,7 +73,7 @@ async function bootPyodide() {
 
   heimdallVersion = pyodide.runPython("import sys; sys.path.insert(0, '/'); import heimdall; heimdall.__version__");
   versionPill.textContent = "heimdall " + heimdallVersion;
-  setStatus("Ready. Drop a MeshMapper CSV above.", "ok");
+  setStatus("Ready. Drop a MeshMapper CSV, MeshCore JSON, or app database above.", "ok");
 }
 
 async function handleFile(file) {
@@ -99,7 +108,10 @@ json.dumps({"records": records, "format": fmt})
     const last = lines[lines.length - 1] || raw;
     let friendly = `Couldn't parse ${file.name}. `;
     if (/UnicodeDecodeError|codec can't decode/i.test(raw)) {
-      friendly += "File looks binary. Heimdall expects a text CSV export.";
+      friendly += "File looks binary, and is not a MeshCore app database " +
+                  "either (those are detected by their SQLite header). " +
+                  "Heimdall expects a text CSV or JSON export, or the app " +
+                  "database itself.";
     } else {
       friendly += `(${last})`;
     }
@@ -124,8 +136,10 @@ json.dumps({"records": records, "format": fmt})
     setStatus(
       `No meshcore nodes found in ${file.name}. ` +
       `Expected a MeshMapper CSV export (flat "Logs → Copy CSV", or a ` +
-      `multi-section file with --- TX/RX/DISC Log --- blocks) or a ` +
-      `MeshCore offline ping-log .json.`,
+      `multi-section file with --- TX/RX/DISC Log --- blocks), a ` +
+      `MeshCore offline ping-log .json, or the MeshCore app database. ` +
+      `A database that parses to nothing usually means its nodes have no ` +
+      `GPS fix yet, since a node with no fix cannot be placed on the map.`,
       "warn",
     );
     return;
@@ -165,18 +179,24 @@ function renderResults(parsed, filename, sightings) {
   previewBody.innerHTML = "";
   for (const r of parsed.records.slice(0, 6)) {
     const tr = document.createElement("tr");
+    // node_type, not type. `type` has been the constant "MESHCORE" on every
+    // record since v0.4.2, so this column showed the same word on every row
+    // while the node's actual role was not displayed at all. Hops matters
+    // enough to show because a hopped sighting cannot move a node's position
+    // ahead of one that arrived at least as directly.
     tr.innerHTML =
       `<td>${r.node_id || ""}</td>` +
-      `<td>${r.type || ""}</td>` +
+      `<td>${r.node_type || ""}</td>` +
       `<td>${(r.lat ?? "").toString().slice(0,9)}</td>` +
       `<td>${(r.lon ?? "").toString().slice(0,9)}</td>` +
       `<td>${r.rssi ?? ""}</td>` +
-      `<td>${r.snr ?? ""}</td>`;
+      `<td>${r.snr ?? ""}</td>` +
+      `<td>${r.path_hops ?? ""}</td>`;
     previewBody.appendChild(tr);
   }
   if (n > 6) {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td colspan="6" style="color:var(--muted)">... and ${n - 6} more</td>`;
+    tr.innerHTML = `<td colspan="7" style="color:var(--muted)">... and ${n - 6} more</td>`;
     previewBody.appendChild(tr);
   }
   resultsEl.classList.add("show");

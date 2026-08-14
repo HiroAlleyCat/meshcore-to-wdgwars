@@ -4,6 +4,48 @@ All notable changes to Heimdall are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.8.1] - 2026-08-14 - Fix: 0.8.0 killed the web frontend on import
+
+0.8.0 imported `sqlite3` at module top level. Pyodide **unvendors** `sqlite3`
+from the standard library, exactly as it does `ssl`, so that one line took the
+entire web frontend down at import time before it could parse anything at all,
+CSV and JSON included. The live Pages deploy showed
+`ModuleNotFoundError: No module named 'sqlite3'` and a version pill reading
+`heimdall ?`. The CLI was never affected; CPython vendors `sqlite3`.
+
+Caught by loading the pinned Pyodide 0.26.4 and importing the module, rather
+than by assuming a stdlib module is present because it is stdlib.
+
+### Fixed
+
+- `sqlite3` is imported lazily inside the database parser instead of at module
+  top level, so a runtime without it loses only this one input format and
+  reports a reason, rather than taking down every format on import.
+- `web/app.js` loads the `sqlite3` package alongside `ssl`, which is what
+  makes the database format work in the browser at all (verified: bare import
+  raises, `loadPackage("sqlite3")` then provides SQLite 3.39.0).
+- `sqlite3.Error` during a read is surfaced as `ValueError`, so callers need
+  one except clause and do not import `sqlite3` just to catch a corrupt file.
+
+### Added
+
+- Three regression guards, each confirmed failing against a deliberately
+  broken build: no top-level `sqlite3` import in `heimdall.py`, `web/app.js`
+  still loads the package, and a simulated unvendored runtime reports a reason
+  while the text parsers keep working.
+- `examples/meshcore-app.db`, a synthetic nine-row fixture (see
+  `examples/README.md`). Synthetic rather than a scrubbed real database,
+  because the parser drops rows with no fix, so a zeroed real database would
+  parse to nothing and demonstrate nothing.
+- The web frontend accepts `.db` / `.sqlite` / `.sqlite3` and says so.
+
+### Fixed (web preview, pre-existing)
+
+- The results table's `TYPE` column rendered `type`, which has been the
+  constant `"MESHCORE"` on every record since v0.4.2, so it showed the same
+  word on every row while the node's actual role was never displayed. It now
+  shows `node_type` under a `ROLE` header, with a `HOPS` column beside it.
+
 ## [0.8.0] - 2026-08-14 - Reads the MeshCore app's own database, three times the nodes
 
 The app's SQLite store, not just the JSON it exports. On the reference dump

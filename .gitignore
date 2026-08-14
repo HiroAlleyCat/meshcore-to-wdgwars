@@ -17,3 +17,6 @@ web/heimdall.py
 
 # rtk (token-killer) local state, not project content
 rtk/
+
+# Claude Code local dev config, not project content
+.claude/

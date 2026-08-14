@@ -6,12 +6,14 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import builtins
 import json
 import sqlite3
 import sys
 import tempfile
 import time
 import unittest
+import unittest.mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -885,6 +887,51 @@ class MeshcoreDbTests(unittest.TestCase):
         db = _make_db(discovered=[_row()])
         recs = heimdall.parse_meshcore_db(db)
         self.assertEqual(heimdall.predict_server_rejects(recs), [])
+
+    def test_sqlite3_is_not_imported_at_module_top_level(self):
+        # Pyodide unvendors sqlite3 exactly as it does ssl. A top-level
+        # `import sqlite3` in heimdall.py does not merely disable database
+        # support in the web frontend, it kills the whole page on import
+        # before any format can be parsed, CSV and JSON included. Confirmed
+        # empirically against the pinned Pyodide 0.26.4. So the import stays
+        # inside the parser.
+        src = (ROOT / "heimdall.py").read_text(encoding="utf-8")
+        top_level = [ln for ln in src.splitlines()
+                     if ln.startswith("import ") or ln.startswith("from ")]
+        self.assertNotIn("import sqlite3", top_level)
+        self.assertIn("import sqlite3", src)  # still imported, just lazily
+
+    def test_web_frontend_loads_the_sqlite3_package(self):
+        # The other half of the same guard: heimdall.py importing it lazily
+        # keeps the page alive, but the database format only actually works
+        # in the browser if the runtime loads the package.
+        app = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
+        self.assertRegex(app, r'loadPackage\(\[[^\]]*"sqlite3"')
+
+    def test_missing_sqlite3_reports_a_reason_and_spares_text_formats(self):
+        # Simulate the unvendored runtime: the database input must fail with
+        # an explanation rather than an ImportError traceback, and the text
+        # parsers must keep working.
+        real_import = builtins.__import__
+
+        def no_sqlite(name, *a, **kw):
+            if name == "sqlite3":
+                raise ModuleNotFoundError("No module named 'sqlite3'")
+            return real_import(name, *a, **kw)
+
+        db = _make_db(discovered=[_row()])
+        csv_path = Path(tempfile.mkdtemp()) / "flat.csv"
+        csv_path.write_text(
+            "timestamp,repeater_id,snr,rssi,latitude,longitude\n"
+            "2026-07-02T18:39:27,0CE8,0.5,-101,48.7,2.07\n", encoding="utf-8")
+
+        with unittest.mock.patch.object(builtins, "__import__", no_sqlite):
+            with self.assertRaises(ValueError) as ctx:
+                heimdall.parse_meshcore_db(db)
+            self.assertIn("sqlite3", str(ctx.exception))
+            records, fmt = heimdall.parse_file(csv_path)
+        self.assertEqual(fmt, "meshmapper-csv")
+        self.assertEqual(len(records), 1)
 
     def test_non_sqlite_db_extension_still_falls_through_to_text(self):
         path = Path(tempfile.mkdtemp()) / "notreally.db"
